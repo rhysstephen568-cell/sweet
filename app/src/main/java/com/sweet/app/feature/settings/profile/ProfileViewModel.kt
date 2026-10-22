@@ -1,5 +1,6 @@
 package com.sweet.app.feature.settings.profile
 
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sweet.app.core.datastore.UserPreferencesRepository
@@ -7,14 +8,16 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.Locale
+import kotlin.math.abs
 import javax.inject.Inject
 
 data class ProfileState(
-    val displayName: String = "SWEET User",
-    val username: String = "sweet_user",
+    val displayName: String,
+    val username: String,
     val bio: String = "Hey there! I am using SWEET.",
     val phoneNumber: String = "+234 800 123 4567",
-    val discoverableLocalNetwork: String = "Contacts",
+    val discoverableLocalNetwork: String = "Everyone",
     val photoVisibility: String = "Everyone",
     val isUsernameAvailable: Boolean = true,
     val isCheckingUsername: Boolean = false,
@@ -27,10 +30,24 @@ class ProfileViewModel @Inject constructor(
     private val preferencesRepository: UserPreferencesRepository
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(ProfileState())
+    private val _uiState = MutableStateFlow(createInitialProfileState())
     val uiState: StateFlow<ProfileState> = _uiState.asStateFlow()
 
     private val _usernameQuery = MutableStateFlow(_uiState.value.username)
+
+    companion object {
+        fun createInitialProfileState(): ProfileState {
+            val model = Build.MODEL
+            val cleanModel = model.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.ROOT)
+            val suffix = abs(Build.FINGERPRINT.hashCode() % 1000).let { if (it == 0) 554 else it }
+            val defaultName = "$model User $suffix"
+            val defaultUsername = "${cleanModel}_$suffix"
+            return ProfileState(
+                displayName = defaultName,
+                username = defaultUsername
+            )
+        }
+    }
 
     @OptIn(FlowPreview::class)
     val usernameValidation: StateFlow<Boolean> = _usernameQuery
