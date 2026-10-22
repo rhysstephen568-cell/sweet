@@ -2,6 +2,8 @@ package com.sweet.app.feature.nearby
 
 import android.Manifest
 import android.content.Intent
+import android.graphics.Paint
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -59,6 +62,7 @@ fun NearbyRadarScreen(
     val isListView by viewModel.isListView.collectAsState()
     val blockedPeerIds by viewModel.blockedPeerIds.collectAsState()
     val shareUrl by viewModel.shareUrl.collectAsState()
+    val incomingShareRequest by viewModel.incomingShareRequest.collectAsState()
 
     var showShareDialog by remember { mutableStateOf(false) }
 
@@ -74,6 +78,7 @@ fun NearbyRadarScreen(
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionsToRequest.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         permissionLauncher.launch(permissionsToRequest.toTypedArray())
     }
@@ -101,7 +106,6 @@ fun NearbyRadarScreen(
         label = "PulseProgress"
     )
 
-    // 5-second scale pulse animation for discovered non-SWEET LAN devices (2.5s scale up + 2.5s scale down = 5s cycle)
     val lanNodePulseScale by infiniteTransition.animateFloat(
         initialValue = 0.85f,
         targetValue = 1.25f,
@@ -311,12 +315,14 @@ fun NearbyRadarScreen(
                             )
                         }
 
+                        // Draw Center User Node
                         drawCircle(
                             color = primaryColor,
                             radius = 20.dp.toPx(),
                             center = center
                         )
 
+                        // Draw Discovered Nodes & Small Text Device Names
                         visiblePeers.forEachIndexed { index, peer ->
                             val nodePos = if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) {
                                 val tierRatio = when (peer.proximityTier) {
@@ -341,7 +347,6 @@ fun NearbyRadarScreen(
                             val nodeRadius = if (peer.isSweetUser) baseRadius else baseRadius * lanNodePulseScale
                             val nodeColor = if (peer.isSweetUser) extendedColors.onlineIndicator else Color(0xFFFFA000)
 
-                            // 5-second pulsing outer aura glow ring for discovered non-SWEET LAN devices
                             if (!peer.isSweetUser) {
                                 drawCircle(
                                     color = Color(0xFFFFA000).copy(alpha = (0.35f * (1.3f - (lanNodePulseScale - 0.85f))).coerceIn(0.05f, 0.45f)),
@@ -355,6 +360,23 @@ fun NearbyRadarScreen(
                                 radius = nodeRadius,
                                 center = nodePos
                             )
+
+                            // Render Device Name in Small Text Underneath Node
+                            drawContext.canvas.nativeCanvas.apply {
+                                val paint = Paint().apply {
+                                    color = if (peer.isSweetUser) android.graphics.Color.WHITE else android.graphics.Color.parseColor("#FFA000")
+                                    textSize = 10.dp.toPx()
+                                    textAlign = Paint.Align.CENTER
+                                    isAntiAlias = true
+                                    isFakeBoldText = true
+                                }
+                                drawText(
+                                    peer.name.take(14),
+                                    nodePos.x,
+                                    nodePos.y + nodeRadius + 14.dp.toPx(),
+                                    paint
+                                )
+                            }
                         }
                     }
 
@@ -442,6 +464,7 @@ fun NearbyRadarScreen(
                 }
             }
 
+            // Share App Dialog
             if (showShareDialog) {
                 AlertDialog(
                     onDismissRequest = { showShareDialog = false },
@@ -484,6 +507,38 @@ fun NearbyRadarScreen(
                             }
                         ) {
                             Text("Close")
+                        }
+                    }
+                )
+            }
+
+            // Incoming LAN Share Request Pop-up Interrupt Alert Dialog
+            incomingShareRequest?.let { req ->
+                AlertDialog(
+                    onDismissRequest = { viewModel.dismissIncomingShareRequest() },
+                    title = { Text("Incoming SWEET App Share") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${req.senderName} wants to share SWEET App with you over local Wi-Fi!")
+                            Text("Download URL: ${req.shareUrl}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(req.shareUrl)).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(browserIntent)
+                                viewModel.dismissIncomingShareRequest()
+                            }
+                        ) {
+                            Text("Download APK in Browser")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { viewModel.dismissIncomingShareRequest() }) {
+                            Text("Dismiss")
                         }
                     }
                 )

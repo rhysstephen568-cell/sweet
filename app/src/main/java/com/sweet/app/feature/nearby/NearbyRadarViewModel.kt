@@ -1,5 +1,6 @@
 package com.sweet.app.feature.nearby
 
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sweet.app.core.datastore.DiscoveryScanType
@@ -11,6 +12,8 @@ import com.sweet.app.core.designsystem.SweetAppearance
 import com.sweet.app.core.network.nearby.NearbyPeer
 import com.sweet.app.core.network.nearby.PeerDiscoveryRepository
 import com.sweet.app.core.network.share.LanApkServer
+import com.sweet.app.core.network.share.LanShareNotificationManager
+import com.sweet.app.core.network.share.LanShareRequest
 import com.sweet.app.core.network.wifi.WifiNetworkMonitor
 import com.sweet.app.core.network.wifi.WifiStateInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,7 +26,8 @@ class NearbyRadarViewModel @Inject constructor(
     private val peerDiscoveryRepository: PeerDiscoveryRepository,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val wifiNetworkMonitor: WifiNetworkMonitor,
-    private val lanApkServer: LanApkServer
+    private val lanApkServer: LanApkServer,
+    private val lanShareNotificationManager: LanShareNotificationManager
 ) : ViewModel() {
 
     val peers: StateFlow<List<NearbyPeer>> = peerDiscoveryRepository.peers
@@ -32,6 +36,7 @@ class NearbyRadarViewModel @Inject constructor(
 
     val isSharingApp: StateFlow<Boolean> = lanApkServer.isSharing
     val shareUrl: StateFlow<String?> = lanApkServer.shareUrl
+    val incomingShareRequest: StateFlow<LanShareRequest?> = lanShareNotificationManager.incomingShareRequest
 
     val preferences: StateFlow<UserPreferences> = userPreferencesRepository.userPreferences.stateIn(
         scope = viewModelScope,
@@ -62,7 +67,7 @@ class NearbyRadarViewModel @Inject constructor(
             userPreferencesRepository.userPreferences.collect { prefs ->
                 peerDiscoveryRepository.startDiscovery(
                     currentUserId = "usr_self_101",
-                    displayName = "Me (You)"
+                    displayName = "Me (${Build.MODEL})"
                 )
             }
         }
@@ -71,10 +76,17 @@ class NearbyRadarViewModel @Inject constructor(
     fun startShareApp() {
         val ip = wifiState.value.ipAddress ?: "127.0.0.1"
         lanApkServer.startServer(ip)
+        shareUrl.value?.let { url ->
+            lanShareNotificationManager.broadcastLanShareSignal(url, Build.MODEL)
+        }
     }
 
     fun stopShareApp() {
         lanApkServer.stopServer()
+    }
+
+    fun dismissIncomingShareRequest() {
+        lanShareNotificationManager.dismissRequest()
     }
 
     fun selectPeer(peer: NearbyPeer?) {
