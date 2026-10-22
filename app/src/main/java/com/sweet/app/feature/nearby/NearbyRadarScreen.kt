@@ -1,5 +1,9 @@
 package com.sweet.app.feature.nearby
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -48,6 +52,23 @@ fun NearbyRadarScreen(
     val isListView by viewModel.isListView.collectAsState()
     val blockedPeerIds by viewModel.blockedPeerIds.collectAsState()
 
+    // Request runtime Wi-Fi discovery permissions upon opening screen
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> }
+
+    LaunchedEffect(Unit) {
+        val permissionsToRequest = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.CHANGE_WIFI_MULTICAST_STATE
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionsToRequest.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }
+        permissionLauncher.launch(permissionsToRequest.toTypedArray())
+    }
+
     val visiblePeers = remember(peers, blockedPeerIds) {
         peers.filterNot { it.userId in blockedPeerIds }
     }
@@ -56,7 +77,6 @@ fun NearbyRadarScreen(
     val outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
     val extendedColors = SweetTheme.extended
 
-    // Radar Sweep Animation
     val infiniteTransition = rememberInfiniteTransition(label = "RadarSweep")
     val sweepAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -65,7 +85,6 @@ fun NearbyRadarScreen(
         label = "SweepAngle"
     )
 
-    // 360 Pulse Wave Expansion Animation
     val pulseProgress by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -173,7 +192,6 @@ fun NearbyRadarScreen(
                                             val angleRad = peer.stableAngleRad
                                             Pair(center.x + r * cos(angleRad), center.y + r * sin(angleRad))
                                         } else {
-                                            // 360 Pulse Angle Spread
                                             val total = visiblePeers.size.coerceAtLeast(1)
                                             val step = 360f / total
                                             val angleDeg = index * step
@@ -194,7 +212,6 @@ fun NearbyRadarScreen(
                         val maxRadius = minOf(size.width, size.height) * 0.42f
 
                         if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) {
-                            // Radial Scan Mode: Concentric Latency Rings
                             listOf(0.25f, 0.50f, 0.75f, 0.95f).forEach { ratio ->
                                 drawCircle(
                                     color = outlineColor,
@@ -216,7 +233,6 @@ fun NearbyRadarScreen(
                                 strokeWidth = 3.dp.toPx()
                             )
                         } else {
-                            // 360° Pulse Scan Mode: Expanding Wave Pulse Circles
                             listOf(0.2f, 0.4f, 0.6f, 0.8f, 1.0f).forEach { ratio ->
                                 drawCircle(
                                     color = outlineColor,
@@ -236,14 +252,12 @@ fun NearbyRadarScreen(
                             )
                         }
 
-                        // Center User Node
                         drawCircle(
                             color = primaryColor,
                             radius = 20.dp.toPx(),
                             center = center
                         )
 
-                        // Discovered Peer Nodes in 360 Spectrum
                         visiblePeers.forEachIndexed { index, peer ->
                             val nodePos = if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) {
                                 val tierRatio = when (peer.proximityTier) {
@@ -272,7 +286,6 @@ fun NearbyRadarScreen(
                         }
                     }
 
-                    // Mode Mode Footer Legend
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomStart)

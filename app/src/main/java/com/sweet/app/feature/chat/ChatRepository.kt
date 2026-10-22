@@ -15,29 +15,30 @@ import javax.inject.Singleton
 
 interface ChatRepository {
     fun getMessages(chatId: String): StateFlow<List<ChatMessage>>
+    fun isPeerTyping(chatId: String): StateFlow<Boolean>
     suspend fun sendMessage(chatId: String, senderId: String, senderName: String, content: String, isFromMe: Boolean)
+    fun sendTypingSignal(chatId: String, isTyping: Boolean)
 }
 
 @Singleton
 class ChatRepositoryImpl @Inject constructor() : ChatRepository {
 
     private val messagesMap = ConcurrentHashMapState()
+    private val typingMap = ConcurrentHashMapTypingState()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val PORT = 9876
 
     init {
-        // Initial sample support message
         val initialMsg = ChatMessage(
             chatId = "101",
             senderId = "usr_support",
             senderName = "SWEET Support Team",
-            content = "Welcome to SWEET messenger v0.01.1.2! Your local & cloud chat pipeline is active.",
+            content = "Welcome to SWEET messenger v0.01.1.3! Real-time typing & discovery active.",
             isFromMe = false,
             status = MessageStatus.READ
         )
         getOrCreateFlow("101").value = listOf(initialMsg)
 
-        // Listen for UDP Broadcast messages on local Wi-Fi subnet
         startUdpListener()
     }
 
@@ -45,8 +46,16 @@ class ChatRepositoryImpl @Inject constructor() : ChatRepository {
         return messagesMap.getOrPut(chatId) { MutableStateFlow(emptyList()) }
     }
 
+    private fun getOrCreateTypingFlow(chatId: String): MutableStateFlow<Boolean> {
+        return typingMap.getOrPut(chatId) { MutableStateFlow(false) }
+    }
+
     override fun getMessages(chatId: String): StateFlow<List<ChatMessage>> {
         return getOrCreateFlow(chatId).asStateFlow()
+    }
+
+    override fun isPeerTyping(chatId: String): StateFlow<Boolean> {
+        return getOrCreateTypingFlow(chatId).asStateFlow()
     }
 
     override suspend fun sendMessage(chatId: String, senderId: String, senderName: String, content: String, isFromMe: Boolean) {
@@ -61,18 +70,24 @@ class ChatRepositoryImpl @Inject constructor() : ChatRepository {
         )
         flow.value = flow.value + newMsg
 
-        // Broadcast message over local Wi-Fi subnet so peer device receives it instantly
+        // Stop typing indicator when message is sent
+        getOrCreateTypingFlow(chatId).value = false
+
         if (isFromMe) {
-            broadcastMessage(chatId, senderId, senderName, content)
+            broadcastPayload("MSG|$chatId|$senderId|$senderName|$content")
         }
     }
 
-    private fun broadcastMessage(chatId: String, senderId: String, senderName: String, content: String) {
+    override fun sendTypingSignal(chatId: String, isTyping: Boolean) {
+        val signal = if (isTyping) "TYPING_START" else "TYPING_STOP"
+        broadcastPayload("$signal|$chatId|usr_self_101|Me|empty")
+    }
+
+    private fun broadcastPayload(payload: String) {
         scope.launch {
             runCatching {
                 val socket = DatagramSocket()
                 socket.broadcast = true
-                val payload = "$chatId|$senderId|$senderName|$content"
                 val bytes = payload.toByteArray()
                 val packet = DatagramPacket(bytes, bytes.size, InetAddress.getByName("255.255.255.255"), PORT)
                 socket.send(packet)
@@ -91,23 +106,36 @@ class ChatRepositoryImpl @Inject constructor() : ChatRepository {
                     socket.receive(packet)
                     val receivedStr = String(packet.data, 0, packet.length)
                     val parts = receivedStr.split("|")
+
                     if (parts.size >= 4) {
-                        val chatId = parts[0]
-                        val senderId = parts[1]
-                        val senderName = parts[2]
-                        val content = parts[3]
+                        val header = parts[0]
+                        val chatId = parts[1]
+                        val senderId = parts[2]
+                        val senderName = parts[3]
 
                         if (senderId != "usr_self_101") {
-                            val flow = getOrCreateFlow(chatId)
-                            val incomingMsg = ChatMessage(
-                                chatId = chatId,
-                                senderId = senderId,
-                                senderName = senderName,
-                                content = content,
-                                isFromMe = false,
-                                status = MessageStatus.READ
-                            )
-                            flow.value = flow.value + incomingMsg
+                            when (header) {
+                                "TYPING_START" -> {
+                                    getOrCreateTypingFlow(chatId).value = true
+                                }
+                                "TYPING_STOP" -> {
+                                    getOrCreateTypingFlow(chatId).value = false
+                                }
+                                "MSG" -> {
+                                    val content = if (parts.size >= 5) parts[4] else ""
+                                    val flow = getOrCreateFlow(chatId)
+                                    val incomingMsg = ChatMessage(
+                                        chatId = chatId,
+                                        senderId = senderId,
+                                        senderName = senderName,
+                                        content = content,
+                                        isFromMe = false,
+                                        status = MessageStatus.READ
+                                    )
+                                    flow.value = flow.value + incomingMsg
+                                    getOrCreateTypingFlow(chatId).value = false
+                                }
+                            }
                         }
                     }
                 }
@@ -116,10 +144,16 @@ class ChatRepositoryImpl @Inject constructor() : ChatRepository {
     }
 }
 
-// Concurrent Map Wrapper
 private class ConcurrentHashMapState {
     private val map = java.util.concurrent.ConcurrentHashMap<String, MutableStateFlow<List<ChatMessage>>>()
     fun getOrPut(key: String, defaultValue: () -> MutableStateFlow<List<ChatMessage>>): MutableStateFlow<List<ChatMessage>> {
+        return map.getOrPut(key, defaultValue)
+    }
+}
+
+private class ConcurrentHashMapTypingState {
+    private val map = java.util.concurrent.ConcurrentHashMap<String, MutableStateFlow<Boolean>>()
+    fun getOrPut(key: String, defaultValue: () -> MutableStateFlow<Boolean>): MutableStateFlow<Boolean> {
         return map.getOrPut(key, defaultValue)
     }
 }

@@ -1,6 +1,7 @@
 package com.sweet.app.feature.chat
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,6 +33,7 @@ fun ConversationScreen(
 ) {
     val messages by viewModel.messages.collectAsState()
     val inputText by viewModel.inputText.collectAsState()
+    val isPeerTyping by viewModel.isPeerTyping.collectAsState()
     val extendedColors = SweetTheme.extended
 
     Scaffold(
@@ -48,7 +50,14 @@ fun ConversationScreen(
                         )
                         Column {
                             Text("SWEET Support / Node #${viewModel.chatId}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("Online on Wi-Fi Subnet", style = MaterialTheme.typography.bodySmall, color = extendedColors.onlineIndicator)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (isPeerTyping) {
+                                    Text("typing", style = MaterialTheme.typography.bodySmall, color = extendedColors.onlineIndicator, fontWeight = FontWeight.Bold)
+                                    TypingDotsIndicator(dotColor = extendedColors.onlineIndicator)
+                                } else {
+                                    Text("Online on Wi-Fi Subnet", style = MaterialTheme.typography.bodySmall, color = extendedColors.onlineIndicator)
+                                }
+                            }
                         }
                     }
                 },
@@ -101,6 +110,26 @@ fun ConversationScreen(
                     message = msg,
                     extendedColors = extendedColors
                 )
+            }
+
+            // Animated 3-dot Typing Indicator Bubble
+            if (isPeerTyping) {
+                item {
+                    Surface(
+                        shape = SweetTheme.shapes.bubbleIncomingShape,
+                        color = extendedColors.bubbleIncoming,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("typing", fontSize = 12.sp, color = extendedColors.bubbleIncomingText)
+                            TypingDotsIndicator(dotColor = extendedColors.bubbleIncomingText)
+                        }
+                    }
+                }
             }
         }
     }

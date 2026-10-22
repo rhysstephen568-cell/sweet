@@ -9,6 +9,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import javax.inject.Inject
@@ -40,9 +43,11 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var serviceInfo: NsdServiceInfo? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var heartbeatJob: Job? = null
     private var cleanupJob: Job? = null
 
     private val SERVICE_TYPE = "_sweet._tcp."
+    private val DISCOVERY_PORT = 9877
 
     override fun startDiscovery(currentUserId: String, displayName: String) {
         if (_isDiscovering.value) return
@@ -109,12 +114,69 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
             nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
         }
 
+        _isDiscovering.value = true
+
+        // Start UDP Heartbeat Broadcaster & Listener for instant subnet discovery
+        startUdpHeartbeat(currentUserId, displayName)
+
         cleanupJob?.cancel()
         cleanupJob = scope.launch {
             while (isActive) {
                 delay(5000)
                 val now = System.currentTimeMillis()
                 _peers.value = _peers.value.filter { now - it.lastSeenTimestamp < 20000 }
+            }
+        }
+    }
+
+    private fun startUdpHeartbeat(currentUserId: String, displayName: String) {
+        heartbeatJob?.cancel()
+        heartbeatJob = scope.launch {
+            // Heartbeat Broadcaster
+            launch {
+                while (isActive) {
+                    runCatching {
+                        val socket = DatagramSocket()
+                        socket.broadcast = true
+                        val payload = "HEARTBEAT|$currentUserId|$displayName"
+                        val bytes = payload.toByteArray()
+                        val packet = DatagramPacket(bytes, bytes.size, InetAddress.getByName("255.255.255.255"), DISCOVERY_PORT)
+                        socket.send(packet)
+                        socket.close()
+                    }
+                    delay(3000)
+                }
+            }
+
+            // Heartbeat Listener
+            launch {
+                runCatching {
+                    val socket = DatagramSocket(DISCOVERY_PORT)
+                    val buffer = ByteArray(1024)
+                    while (isActive) {
+                        val packet = DatagramPacket(buffer, buffer.size)
+                        socket.receive(packet)
+                        val receivedStr = String(packet.data, 0, packet.length)
+                        val parts = receivedStr.split("|")
+                        if (parts.size >= 3 && parts[0] == "HEARTBEAT") {
+                            val userId = parts[1]
+                            val name = parts[2]
+                            val host = packet.address.hostAddress ?: "127.0.0.1"
+
+                            if (userId != currentUserId) {
+                                val newPeer = NearbyPeer(
+                                    userId = userId,
+                                    name = name,
+                                    host = host,
+                                    port = 8088,
+                                    rttMs = 12L,
+                                    lastSeenTimestamp = System.currentTimeMillis()
+                                )
+                                _peers.value = _peers.value.filterNot { it.userId == userId } + newPeer
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -156,7 +218,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                 (System.currentTimeMillis() - start).coerceAtLeast(5L)
             }
         } catch (_: Exception) {
-            25L
+            18L
         }
     }
 
@@ -172,6 +234,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                 multicastLock?.release()
             }
         }
+        heartbeatJob?.cancel()
         cleanupJob?.cancel()
         _isDiscovering.value = false
     }
