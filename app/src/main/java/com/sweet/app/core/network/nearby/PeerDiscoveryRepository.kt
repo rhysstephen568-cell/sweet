@@ -9,11 +9,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetAddress
-import java.net.InetSocketAddress
-import java.net.Socket
+import java.net.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,10 +40,13 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
     private var serviceInfo: NsdServiceInfo? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var heartbeatJob: Job? = null
+    private var tcpServerJob: Job? = null
+    private var subnetScannerJob: Job? = null
     private var cleanupJob: Job? = null
 
     private val SERVICE_TYPE = "_sweet._tcp."
     private val DISCOVERY_PORT = 9877
+    private val HANDSHAKE_PORT = 9878
 
     override fun startDiscovery(currentUserId: String, displayName: String) {
         if (_isDiscovering.value) return
@@ -61,10 +60,11 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
             multicastLock?.acquire()
         }
 
+        // 1. Register NSD Service
         serviceInfo = NsdServiceInfo().apply {
             serviceName = "SWEET_$currentUserId"
             serviceType = SERVICE_TYPE
-            port = 8088
+            port = HANDSHAKE_PORT
             setAttribute("userId", currentUserId)
             setAttribute("displayName", displayName)
             setAttribute("discoverable", "true")
@@ -116,15 +116,49 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
 
         _isDiscovering.value = true
 
-        // Start UDP Heartbeat Broadcaster & Listener for instant subnet discovery
+        // 2. Start TCP Discovery Handshake Server
+        startTcpDiscoveryServer(currentUserId, displayName)
+
+        // 3. Start UDP Heartbeat Broadcaster & Listener (with SO_REUSEADDR)
         startUdpHeartbeat(currentUserId, displayName)
 
+        // 4. Start Subnet Scanner Sweep
+        startSubnetScanner(currentUserId)
+
+        // 5. Expiry Cleanup
         cleanupJob?.cancel()
         cleanupJob = scope.launch {
             while (isActive) {
                 delay(5000)
                 val now = System.currentTimeMillis()
-                _peers.value = _peers.value.filter { now - it.lastSeenTimestamp < 20000 }
+                _peers.value = _peers.value.filter { now - it.lastSeenTimestamp < 25000 }
+            }
+        }
+    }
+
+    private fun startTcpDiscoveryServer(currentUserId: String, displayName: String) {
+        tcpServerJob?.cancel()
+        tcpServerJob = scope.launch(Dispatchers.IO) {
+            runCatching {
+                val serverSocket = ServerSocket().apply {
+                    reuseAddress = true
+                    bind(InetSocketAddress(HANDSHAKE_PORT))
+                }
+                while (isActive) {
+                    val client = serverSocket.accept()
+                    launch {
+                        runCatching {
+                            val reader = client.getInputStream().bufferedReader()
+                            val writer = client.getOutputStream().bufferedWriter()
+                            val line = reader.readLine()
+                            if (line?.startsWith("SWEET_PING") == true) {
+                                writer.write("SWEET_PONG|$currentUserId|$displayName\n")
+                                writer.flush()
+                            }
+                            client.close()
+                        }
+                    }
+                }
             }
         }
     }
@@ -140,18 +174,40 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                         socket.broadcast = true
                         val payload = "HEARTBEAT|$currentUserId|$displayName"
                         val bytes = payload.toByteArray()
-                        val packet = DatagramPacket(bytes, bytes.size, InetAddress.getByName("255.255.255.255"), DISCOVERY_PORT)
-                        socket.send(packet)
+
+                        // Broadcast to 255.255.255.255
+                        runCatching {
+                            val packet = DatagramPacket(bytes, bytes.size, InetAddress.getByName("255.255.255.255"), DISCOVERY_PORT)
+                            socket.send(packet)
+                        }
+
+                        // Broadcast to specific Subnet Broadcast IP if available
+                        getSubnetBroadcastAddress()?.let { subnetBroadcast ->
+                            runCatching {
+                                val packet = DatagramPacket(bytes, bytes.size, subnetBroadcast, DISCOVERY_PORT)
+                                socket.send(packet)
+                            }
+                        }
+
+                        // Broadcast to Emulator Host Gateway
+                        runCatching {
+                            val packet = DatagramPacket(bytes, bytes.size, InetAddress.getByName("10.0.2.2"), DISCOVERY_PORT)
+                            socket.send(packet)
+                        }
+
                         socket.close()
                     }
-                    delay(3000)
+                    delay(2500)
                 }
             }
 
-            // Heartbeat Listener
+            // Heartbeat Listener with SO_REUSEADDR
             launch {
                 runCatching {
-                    val socket = DatagramSocket(DISCOVERY_PORT)
+                    val socket = DatagramSocket(null).apply {
+                        reuseAddress = true
+                        bind(InetSocketAddress(DISCOVERY_PORT))
+                    }
                     val buffer = ByteArray(1024)
                     while (isActive) {
                         val packet = DatagramPacket(buffer, buffer.size)
@@ -168,7 +224,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                     userId = userId,
                                     name = name,
                                     host = host,
-                                    port = 8088,
+                                    port = HANDSHAKE_PORT,
                                     rttMs = 12L,
                                     lastSeenTimestamp = System.currentTimeMillis()
                                 )
@@ -178,6 +234,90 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                     }
                 }
             }
+        }
+    }
+
+    private fun startSubnetScanner(currentUserId: String) {
+        subnetScannerJob?.cancel()
+        subnetScannerJob = scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                runCatching {
+                    val myIp = getLocalIpAddress()
+                    if (myIp != null && myIp.contains(".")) {
+                        val prefix = myIp.substringBeforeLast(".") + "."
+                        // Sweep active subnet IP range
+                        val ipsToScan = listOf("10.0.2.2", "10.0.2.15") + (1..30).map { "$prefix$it" }
+                        
+                        ipsToScan.forEach { targetIp ->
+                            if (targetIp != myIp) {
+                                launch {
+                                    runCatching {
+                                        Socket().use { socket ->
+                                            socket.connect(InetSocketAddress(targetIp, HANDSHAKE_PORT), 300)
+                                            val writer = socket.getOutputStream().bufferedWriter()
+                                            val reader = socket.getInputStream().bufferedReader()
+                                            writer.write("SWEET_PING\n")
+                                            writer.flush()
+                                            val response = reader.readLine()
+                                            if (response?.startsWith("SWEET_PONG") == true) {
+                                                val parts = response.split("|")
+                                                val peerId = parts.getOrNull(1) ?: "usr_peer"
+                                                val name = parts.getOrNull(2) ?: "Nearby User"
+
+                                                if (peerId != currentUserId) {
+                                                    val peer = NearbyPeer(
+                                                        userId = peerId,
+                                                        name = name,
+                                                        host = targetIp,
+                                                        port = HANDSHAKE_PORT,
+                                                        rttMs = 10L,
+                                                        lastSeenTimestamp = System.currentTimeMillis()
+                                                    )
+                                                    _peers.value = _peers.value.filterNot { it.userId == peerId } + peer
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                delay(10000)
+            }
+        }
+    }
+
+    private fun getSubnetBroadcastAddress(): InetAddress? {
+        return try {
+            val dhcp = wifiManager.dhcpInfo ?: return null
+            val broadcast = (dhcp.ipAddress and dhcp.netmask) or dhcp.netmask.inv()
+            val quads = ByteArray(4)
+            for (k in 0..3) {
+                quads[k] = (broadcast shr (k * 8) and 0xFF).toByte()
+            }
+            InetAddress.getByAddress(quads)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun getLocalIpAddress(): String? {
+        return try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+                val addresses = networkInterface.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val addr = addresses.nextElement()
+                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                        return addr.hostAddress
+                    }
+                }
+            }
+            null
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -214,7 +354,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
         val start = System.currentTimeMillis()
         return@withContext try {
             Socket().use { socket ->
-                socket.connect(InetSocketAddress(host, port), 1500)
+                socket.connect(InetSocketAddress(host, port), 1200)
                 (System.currentTimeMillis() - start).coerceAtLeast(5L)
             }
         } catch (_: Exception) {
@@ -235,6 +375,8 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
             }
         }
         heartbeatJob?.cancel()
+        tcpServerJob?.cancel()
+        subnetScannerJob?.cancel()
         cleanupJob?.cancel()
         _isDiscovering.value = false
     }

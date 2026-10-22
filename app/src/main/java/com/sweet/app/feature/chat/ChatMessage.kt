@@ -12,5 +12,13 @@ data class ChatMessage(
     val content: String,
     val timestamp: Long = System.currentTimeMillis(),
     val isFromMe: Boolean,
-    val status: MessageStatus = MessageStatus.SENT
+    val status: MessageStatus = MessageStatus.SENT,
+    val isSecret: Boolean = false,
+    val selfDestructSeconds: Int = 0,
+    val fileName: String? = null,
+    val fileSizeStr: String? = null,
+    val isBeamFile: Boolean = false,
+    val transferProgressPercent: Float = 0f,
+    val transferSpeedMBs: Float = 0f,
+    val isTransferCompleted: Boolean = false
 )
