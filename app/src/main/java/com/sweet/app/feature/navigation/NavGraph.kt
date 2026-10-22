@@ -12,6 +12,7 @@ import com.sweet.app.feature.nearby.NearbyRadarScreen
 import com.sweet.app.feature.nearby.NearbyRadarViewModel
 import com.sweet.app.feature.settings.AppearanceSettingsScreen
 import com.sweet.app.feature.settings.ThemeViewModel
+import com.sweet.app.feature.settings.about.AboutSettingsScreen
 import com.sweet.app.feature.settings.discovery.DiscoverySettingsScreen
 import com.sweet.app.feature.settings.discovery.DiscoveryViewModel
 import com.sweet.app.feature.settings.profile.ProfileSettingsScreen
@@ -25,6 +26,7 @@ object Destinations {
     const val PROFILE_SETTINGS = "profile_settings"
     const val APPEARANCE_SETTINGS = "appearance_settings"
     const val DISCOVERY_SETTINGS = "discovery_settings"
+    const val ABOUT = "about"
     const val NEARBY_RADAR = "nearby_radar"
 }
 
@@ -80,6 +82,9 @@ fun SweetNavGraph(
                 onNavigateToDiscovery = {
                     navController.navigate(Destinations.DISCOVERY_SETTINGS)
                 },
+                onNavigateToAbout = {
+                    navController.navigate(Destinations.ABOUT)
+                },
                 onBackClick = { navController.popBackStack() }
             )
         }
@@ -108,6 +113,12 @@ fun SweetNavGraph(
             val discoveryViewModel: DiscoveryViewModel = hiltViewModel()
             DiscoverySettingsScreen(
                 viewModel = discoveryViewModel,
+                onBackClick = { navController.popBackStack() }
+            )
+        }
+
+        composable(Destinations.ABOUT) {
+            AboutSettingsScreen(
                 onBackClick = { navController.popBackStack() }
             )
         }

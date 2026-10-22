@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Radar
@@ -25,7 +26,7 @@ import com.sweet.app.core.designsystem.SweetTopAppBar
 @Composable
 fun AuthPlaceholderScreen(onLoginSuccess: () -> Unit) {
     Scaffold(
-        topBar = { TopAppBar(title = { Text("SWEET v0.01.1.2") }) }
+        topBar = { TopAppBar(title = { Text("SWEET") }) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -81,17 +82,24 @@ fun ChatListPlaceholderScreen(
                                 .size(36.dp)
                                 .clip(CircleShape)
                         )
-                        Text("SWEET v0.01.1.2")
+                        Text("SWEET")
                     }
                 },
                 actions = {
-                    IconButton(onClick = onNavigateToNearbyRadar) {
-                        Icon(Icons.Default.Radar, contentDescription = "Nearby Radar")
-                    }
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 }
+            )
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onNavigateToNearbyRadar,
+                icon = { Icon(Icons.Default.Radar, contentDescription = "Find") },
+                text = { Text("Find") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = SweetTheme.shapes.buttonShape
             )
         }
     ) { padding ->
@@ -102,27 +110,6 @@ fun ChatListPlaceholderScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Card(
-                onClick = onNavigateToNearbyRadar,
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                shape = SweetTheme.shapes.cardShape
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Icon(Icons.Default.Radar, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Column {
-                        Text("Nearby Radial & 360° Pulse Scan", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Text("Discover & chat with people on your Wi-Fi network", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                }
-            }
-
             Text(
                 text = "Chats",
                 style = MaterialTheme.typography.titleMedium,
@@ -153,7 +140,7 @@ fun ChatListPlaceholderScreen(
                         )
                         Column {
                             Text("SWEET Support Team", fontWeight = FontWeight.Bold)
-                            Text("Version 0.01.1.2 active with full chatting!", style = MaterialTheme.typography.bodyMedium)
+                            Text("Welcome to SWEET! Tap Find to discover nearby users.", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                     Badge { Text("1") }
@@ -165,10 +152,33 @@ fun ChatListPlaceholderScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+fun ConversationPlaceholderScreen(chatId: String, onBackClick: () -> Unit) {
+    Scaffold(
+        topBar = {
+            SweetTopAppBar(
+                title = { Text("Chat #$chatId") },
+                onBackClick = onBackClick
+            )
+        }
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("Conversation Screen Placeholder for Chat $chatId")
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun SettingsPlaceholderScreen(
     onNavigateToProfile: () -> Unit,
     onNavigateToAppearance: () -> Unit,
     onNavigateToDiscovery: () -> Unit,
+    onNavigateToAbout: () -> Unit,
     onBackClick: () -> Unit
 ) {
     Scaffold(
@@ -242,6 +252,26 @@ fun SettingsPlaceholderScreen(
                     Column {
                         Text("Appearance & Themes", fontWeight = FontWeight.Bold)
                         Text("Explore all 15 appearances, colors, and presets", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
+            Card(
+                onClick = onNavigateToAbout,
+                modifier = Modifier.fillMaxWidth(),
+                shape = SweetTheme.shapes.cardShape
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = "About SWEET")
+                    Column {
+                        Text("About SWEET", fontWeight = FontWeight.Bold)
+                        Text("App version 0.01.1.4, build details, and info", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
