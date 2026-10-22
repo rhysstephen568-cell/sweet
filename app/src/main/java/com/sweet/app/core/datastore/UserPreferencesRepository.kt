@@ -19,12 +19,19 @@ import javax.inject.Singleton
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "user_preferences")
 
+enum class DiscoveryScanType(val displayName: String, val description: String) {
+    RADIAL("Radial Scan", "Concentric proximity tier rings based on latency"),
+    PULSE_360("360° Pulse Scan", "Expanding 360-degree radar wave visualization")
+}
+
 data class UserPreferences(
     val appearance: SweetAppearance,
     val followSystem: Boolean,
     val catppuccinVariant: CatppuccinVariant,
     val fontScale: Float,
-    val cornerRadiusPreset: CornerRadiusPreset
+    val cornerRadiusPreset: CornerRadiusPreset,
+    val discoveryScanType: DiscoveryScanType,
+    val discoverableLocalNetwork: String
 )
 
 interface UserPreferencesRepository {
@@ -34,6 +41,8 @@ interface UserPreferencesRepository {
     suspend fun setCatppuccinVariant(variant: CatppuccinVariant)
     suspend fun setFontScale(scale: Float)
     suspend fun setCornerRadiusPreset(preset: CornerRadiusPreset)
+    suspend fun setDiscoveryScanType(type: DiscoveryScanType)
+    suspend fun setDiscoverableLocalNetwork(option: String)
 }
 
 @Singleton
@@ -47,6 +56,8 @@ class UserPreferencesRepositoryImpl @Inject constructor(
         val CATPPUCCIN_VARIANT = stringPreferencesKey("catppuccin_variant")
         val FONT_SCALE = floatPreferencesKey("font_scale")
         val CORNER_RADIUS_PRESET = stringPreferencesKey("corner_radius_preset")
+        val DISCOVERY_SCAN_TYPE = stringPreferencesKey("discovery_scan_type")
+        val DISCOVERABLE_LOCAL_NETWORK = stringPreferencesKey("discoverable_local_network")
     }
 
     override val userPreferences: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -63,12 +74,19 @@ class UserPreferencesRepositoryImpl @Inject constructor(
         val presetName = prefs[PreferencesKeys.CORNER_RADIUS_PRESET] ?: CornerRadiusPreset.DEFAULT.name
         val preset = runCatching { CornerRadiusPreset.valueOf(presetName) }.getOrDefault(CornerRadiusPreset.DEFAULT)
 
+        val scanTypeName = prefs[PreferencesKeys.DISCOVERY_SCAN_TYPE] ?: DiscoveryScanType.RADIAL.name
+        val scanType = runCatching { DiscoveryScanType.valueOf(scanTypeName) }.getOrDefault(DiscoveryScanType.RADIAL)
+
+        val discoverableLocalNetwork = prefs[PreferencesKeys.DISCOVERABLE_LOCAL_NETWORK] ?: "Everyone"
+
         UserPreferences(
             appearance = appearance,
             followSystem = followSystem,
             catppuccinVariant = catVariant,
             fontScale = fontScale,
-            cornerRadiusPreset = preset
+            cornerRadiusPreset = preset,
+            discoveryScanType = scanType,
+            discoverableLocalNetwork = discoverableLocalNetwork
         )
     }
 
@@ -99,6 +117,18 @@ class UserPreferencesRepositoryImpl @Inject constructor(
     override suspend fun setCornerRadiusPreset(preset: CornerRadiusPreset) {
         context.dataStore.edit { prefs ->
             prefs[PreferencesKeys.CORNER_RADIUS_PRESET] = preset.name
+        }
+    }
+
+    override suspend fun setDiscoveryScanType(type: DiscoveryScanType) {
+        context.dataStore.edit { prefs ->
+            prefs[PreferencesKeys.DISCOVERY_SCAN_TYPE] = type.name
+        }
+    }
+
+    override suspend fun setDiscoverableLocalNetwork(option: String) {
+        context.dataStore.edit { prefs ->
+            prefs[PreferencesKeys.DISCOVERABLE_LOCAL_NETWORK] = option
         }
     }
 }

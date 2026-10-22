@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Radar
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,6 +26,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sweet.app.core.datastore.DiscoveryScanType
 import com.sweet.app.core.designsystem.SweetTheme
 import com.sweet.app.core.designsystem.SweetTopAppBar
 import com.sweet.app.core.network.nearby.NearbyPeer
@@ -37,9 +39,11 @@ import kotlin.math.sin
 fun NearbyRadarScreen(
     viewModel: NearbyRadarViewModel,
     onBackClick: () -> Unit,
+    onNavigateToDiscoverySettings: () -> Unit,
     onStartChat: (String) -> Unit
 ) {
     val peers by viewModel.peers.collectAsState()
+    val prefs by viewModel.preferences.collectAsState()
     val selectedPeer by viewModel.selectedPeer.collectAsState()
     val isListView by viewModel.isListView.collectAsState()
     val blockedPeerIds by viewModel.blockedPeerIds.collectAsState()
@@ -52,6 +56,7 @@ fun NearbyRadarScreen(
     val outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
     val extendedColors = SweetTheme.extended
 
+    // Radar Sweep Animation
     val infiniteTransition = rememberInfiniteTransition(label = "RadarSweep")
     val sweepAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -60,12 +65,23 @@ fun NearbyRadarScreen(
         label = "SweepAngle"
     )
 
+    // 360 Pulse Wave Expansion Animation
+    val pulseProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(2500, easing = FastOutSlowInEasing)),
+        label = "PulseProgress"
+    )
+
     Scaffold(
         topBar = {
             SweetTopAppBar(
-                title = { Text("Nearby Radial Discovery") },
+                title = { Text(if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) "Radial Scan" else "360° Pulse Scan") },
                 onBackClick = onBackClick,
                 actions = {
+                    IconButton(onClick = onNavigateToDiscoverySettings) {
+                        Icon(Icons.Default.Tune, contentDescription = "Discovery Settings")
+                    }
                     IconButton(onClick = { viewModel.toggleListView() }) {
                         Icon(
                             imageVector = if (isListView) Icons.Default.Radar else Icons.AutoMirrored.Filled.List,
@@ -140,22 +156,31 @@ fun NearbyRadarScreen(
                     Canvas(
                         modifier = Modifier
                             .fillMaxSize()
-                            .pointerInput(visiblePeers) {
+                            .pointerInput(visiblePeers, prefs.discoveryScanType) {
                                 detectTapGestures { offset ->
                                     val center = Offset(size.width / 2f, size.height / 2f)
                                     val maxRadius = minOf(size.width, size.height) * 0.42f
 
-                                    visiblePeers.forEach { peer ->
-                                        val tierRatio = when (peer.proximityTier) {
-                                            ProximityTier.VERY_CLOSE -> 0.25f
-                                            ProximityTier.CLOSE -> 0.50f
-                                            ProximityTier.FAR -> 0.75f
-                                            ProximityTier.DISTANT -> 0.95f
+                                    visiblePeers.forEachIndexed { index, peer ->
+                                        val (px, py) = if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) {
+                                            val tierRatio = when (peer.proximityTier) {
+                                                ProximityTier.VERY_CLOSE -> 0.25f
+                                                ProximityTier.CLOSE -> 0.50f
+                                                ProximityTier.FAR -> 0.75f
+                                                ProximityTier.DISTANT -> 0.95f
+                                            }
+                                            val r = maxRadius * tierRatio
+                                            val angleRad = peer.stableAngleRad
+                                            Pair(center.x + r * cos(angleRad), center.y + r * sin(angleRad))
+                                        } else {
+                                            // 360 Pulse Angle Spread
+                                            val total = visiblePeers.size.coerceAtLeast(1)
+                                            val step = 360f / total
+                                            val angleDeg = index * step
+                                            val angleRad = Math.toRadians(angleDeg.toDouble()).toFloat()
+                                            val r = maxRadius * 0.65f
+                                            Pair(center.x + r * cos(angleRad), center.y + r * sin(angleRad))
                                         }
-                                        val r = maxRadius * tierRatio
-                                        val angleRad = peer.stableAngleRad
-                                        val px = center.x + r * cos(angleRad)
-                                        val py = center.y + r * sin(angleRad)
 
                                         val dist = Offset(px, py).minus(offset).getDistance()
                                         if (dist < 50f) {
@@ -168,63 +193,98 @@ fun NearbyRadarScreen(
                         val center = Offset(size.width / 2f, size.height / 2f)
                         val maxRadius = minOf(size.width, size.height) * 0.42f
 
-                        listOf(0.25f, 0.50f, 0.75f, 0.95f).forEach { ratio ->
+                        if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) {
+                            // Radial Scan Mode: Concentric Latency Rings
+                            listOf(0.25f, 0.50f, 0.75f, 0.95f).forEach { ratio ->
+                                drawCircle(
+                                    color = outlineColor,
+                                    radius = maxRadius * ratio,
+                                    center = center,
+                                    style = Stroke(width = 2.dp.toPx())
+                                )
+                            }
+
+                            val sweepRad = Math.toRadians(sweepAngle.toDouble()).toFloat()
+                            val lineEnd = Offset(
+                                x = center.x + maxRadius * cos(sweepRad),
+                                y = center.y + maxRadius * sin(sweepRad)
+                            )
+                            drawLine(
+                                color = primaryColor.copy(alpha = 0.5f),
+                                start = center,
+                                end = lineEnd,
+                                strokeWidth = 3.dp.toPx()
+                            )
+                        } else {
+                            // 360° Pulse Scan Mode: Expanding Wave Pulse Circles
+                            listOf(0.2f, 0.4f, 0.6f, 0.8f, 1.0f).forEach { ratio ->
+                                drawCircle(
+                                    color = outlineColor,
+                                    radius = maxRadius * ratio,
+                                    center = center,
+                                    style = Stroke(width = 1.5.dp.toPx())
+                                )
+                            }
+
+                            val expandingRadius = maxRadius * pulseProgress
+                            val alpha = (1f - pulseProgress).coerceIn(0f, 1f)
                             drawCircle(
-                                color = outlineColor,
-                                radius = maxRadius * ratio,
+                                color = primaryColor.copy(alpha = alpha * 0.6f),
+                                radius = expandingRadius,
                                 center = center,
-                                style = Stroke(width = 2.dp.toPx())
+                                style = Stroke(width = 4.dp.toPx())
                             )
                         }
 
-                        val sweepRad = Math.toRadians(sweepAngle.toDouble()).toFloat()
-                        val lineEnd = Offset(
-                            x = center.x + maxRadius * cos(sweepRad),
-                            y = center.y + maxRadius * sin(sweepRad)
-                        )
-                        drawLine(
-                            color = primaryColor.copy(alpha = 0.5f),
-                            start = center,
-                            end = lineEnd,
-                            strokeWidth = 3.dp.toPx()
-                        )
-
+                        // Center User Node
                         drawCircle(
                             color = primaryColor,
                             radius = 20.dp.toPx(),
                             center = center
                         )
 
-                        visiblePeers.forEach { peer ->
-                            val tierRatio = when (peer.proximityTier) {
-                                ProximityTier.VERY_CLOSE -> 0.25f
-                                ProximityTier.CLOSE -> 0.50f
-                                ProximityTier.FAR -> 0.75f
-                                ProximityTier.DISTANT -> 0.95f
+                        // Discovered Peer Nodes in 360 Spectrum
+                        visiblePeers.forEachIndexed { index, peer ->
+                            val nodePos = if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) {
+                                val tierRatio = when (peer.proximityTier) {
+                                    ProximityTier.VERY_CLOSE -> 0.25f
+                                    ProximityTier.CLOSE -> 0.50f
+                                    ProximityTier.FAR -> 0.75f
+                                    ProximityTier.DISTANT -> 0.95f
+                                }
+                                val r = maxRadius * tierRatio
+                                val angleRad = peer.stableAngleRad
+                                Offset(center.x + r * cos(angleRad), center.y + r * sin(angleRad))
+                            } else {
+                                val total = visiblePeers.size.coerceAtLeast(1)
+                                val step = 360f / total
+                                val angleDeg = index * step
+                                val angleRad = Math.toRadians(angleDeg.toDouble()).toFloat()
+                                val r = maxRadius * 0.65f
+                                Offset(center.x + r * cos(angleRad), center.y + r * sin(angleRad))
                             }
-                            val r = maxRadius * tierRatio
-                            val angleRad = peer.stableAngleRad
-                            val nodePos = Offset(
-                                x = center.x + r * cos(angleRad),
-                                y = center.y + r * sin(angleRad)
-                            )
 
                             drawCircle(
                                 color = extendedColors.onlineIndicator,
-                                radius = 16.dp.toPx(),
+                                radius = 18.dp.toPx(),
                                 center = nodePos
                             )
                         }
                     }
 
+                    // Mode Mode Footer Legend
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .padding(8.dp)
                     ) {
-                        Text("• Ring 1: Very Close (<15ms)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("• Ring 2: Close (<40ms)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("• Ring 3: Far (<100ms)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) {
+                            Text("• Mode: Radial Scan (Concentric Latency Tiers)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            Text("• Ring 1: Very Close (<15ms) • Ring 2: Close (<40ms)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            Text("• Mode: 360° Pulse Scan (Expanding Wave Pulse)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            Text("• 360-degree radar spectrum wave discovery", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }

@@ -2,7 +2,12 @@ package com.sweet.app.feature.nearby
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sweet.app.core.datastore.DiscoveryScanType
+import com.sweet.app.core.datastore.UserPreferences
 import com.sweet.app.core.datastore.UserPreferencesRepository
+import com.sweet.app.core.designsystem.CatppuccinVariant
+import com.sweet.app.core.designsystem.CornerRadiusPreset
+import com.sweet.app.core.designsystem.SweetAppearance
 import com.sweet.app.core.network.nearby.NearbyPeer
 import com.sweet.app.core.network.nearby.PeerDiscoveryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -19,6 +24,20 @@ class NearbyRadarViewModel @Inject constructor(
     val peers: StateFlow<List<NearbyPeer>> = peerDiscoveryRepository.peers
     val isDiscovering: StateFlow<Boolean> = peerDiscoveryRepository.isDiscovering
 
+    val preferences: StateFlow<UserPreferences> = userPreferencesRepository.userPreferences.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = UserPreferences(
+            appearance = SweetAppearance.SWEET_LIGHT,
+            followSystem = true,
+            catppuccinVariant = CatppuccinVariant.MOCHA,
+            fontScale = 1.0f,
+            cornerRadiusPreset = CornerRadiusPreset.DEFAULT,
+            discoveryScanType = DiscoveryScanType.RADIAL,
+            discoverableLocalNetwork = "Everyone"
+        )
+    )
+
     private val _selectedPeer = MutableStateFlow<NearbyPeer?>(null)
     val selectedPeer: StateFlow<NearbyPeer?> = _selectedPeer.asStateFlow()
 
@@ -31,7 +50,6 @@ class NearbyRadarViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             userPreferencesRepository.userPreferences.collect { prefs ->
-                // Start discovery when screen initializes
                 peerDiscoveryRepository.startDiscovery(
                     currentUserId = "usr_self_101",
                     displayName = "Me (You)"
@@ -46,6 +64,12 @@ class NearbyRadarViewModel @Inject constructor(
 
     fun toggleListView() {
         _isListView.value = !_isListView.value
+    }
+
+    fun setScanType(type: DiscoveryScanType) {
+        viewModelScope.launch {
+            userPreferencesRepository.setDiscoveryScanType(type)
+        }
     }
 
     fun blockPeer(userId: String) {

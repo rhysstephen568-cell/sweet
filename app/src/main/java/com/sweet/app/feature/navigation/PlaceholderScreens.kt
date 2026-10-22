@@ -25,7 +25,7 @@ import com.sweet.app.core.designsystem.SweetTopAppBar
 @Composable
 fun AuthPlaceholderScreen(onLoginSuccess: () -> Unit) {
     Scaffold(
-        topBar = { TopAppBar(title = { Text("SWEET v0.01.1.1") }) }
+        topBar = { TopAppBar(title = { Text("SWEET v0.01.1.2") }) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -81,7 +81,7 @@ fun ChatListPlaceholderScreen(
                                 .size(36.dp)
                                 .clip(CircleShape)
                         )
-                        Text("SWEET v0.01.1.1")
+                        Text("SWEET v0.01.1.2")
                     }
                 },
                 actions = {
@@ -102,7 +102,6 @@ fun ChatListPlaceholderScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Nearby Radar Banner Shortcut
             Card(
                 onClick = onNavigateToNearbyRadar,
                 modifier = Modifier.fillMaxWidth(),
@@ -118,7 +117,7 @@ fun ChatListPlaceholderScreen(
                 ) {
                     Icon(Icons.Default.Radar, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                     Column {
-                        Text("Nearby Radial Chat Discovery", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text("Nearby Radial & 360° Pulse Scan", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
                         Text("Discover & chat with people on your Wi-Fi network", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
                 }
@@ -154,7 +153,7 @@ fun ChatListPlaceholderScreen(
                         )
                         Column {
                             Text("SWEET Support Team", fontWeight = FontWeight.Bold)
-                            Text("Version 0.01.1.1 ready with Nearby Radar!", style = MaterialTheme.typography.bodyMedium)
+                            Text("Version 0.01.1.2 active with full chatting!", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                     Badge { Text("1") }
@@ -166,31 +165,10 @@ fun ChatListPlaceholderScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConversationPlaceholderScreen(chatId: String, onBackClick: () -> Unit) {
-    Scaffold(
-        topBar = {
-            SweetTopAppBar(
-                title = { Text("Chat #$chatId") },
-                onBackClick = onBackClick
-            )
-        }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("Conversation Screen Placeholder for Chat $chatId")
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
 fun SettingsPlaceholderScreen(
     onNavigateToProfile: () -> Unit,
     onNavigateToAppearance: () -> Unit,
+    onNavigateToDiscovery: () -> Unit,
     onBackClick: () -> Unit
 ) {
     Scaffold(
@@ -224,6 +202,26 @@ fun SettingsPlaceholderScreen(
                     Column {
                         Text("My Profile & Privacy", fontWeight = FontWeight.Bold)
                         Text("Name, username, bio, and Wi-Fi privacy settings", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
+            Card(
+                onClick = onNavigateToDiscovery,
+                modifier = Modifier.fillMaxWidth(),
+                shape = SweetTheme.shapes.cardShape
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(Icons.Default.Radar, contentDescription = "Discovery Settings")
+                    Column {
+                        Text("Discovery Settings", fontWeight = FontWeight.Bold)
+                        Text("Switch between Radial Scan & 360° Pulse Scan", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

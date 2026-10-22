@@ -6,10 +6,14 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.sweet.app.feature.chat.ChatViewModel
+import com.sweet.app.feature.chat.ConversationScreen
 import com.sweet.app.feature.nearby.NearbyRadarScreen
 import com.sweet.app.feature.nearby.NearbyRadarViewModel
 import com.sweet.app.feature.settings.AppearanceSettingsScreen
 import com.sweet.app.feature.settings.ThemeViewModel
+import com.sweet.app.feature.settings.discovery.DiscoverySettingsScreen
+import com.sweet.app.feature.settings.discovery.DiscoveryViewModel
 import com.sweet.app.feature.settings.profile.ProfileSettingsScreen
 import com.sweet.app.feature.settings.profile.ProfileViewModel
 
@@ -20,6 +24,7 @@ object Destinations {
     const val SETTINGS = "settings"
     const val PROFILE_SETTINGS = "profile_settings"
     const val APPEARANCE_SETTINGS = "appearance_settings"
+    const val DISCOVERY_SETTINGS = "discovery_settings"
     const val NEARBY_RADAR = "nearby_radar"
 }
 
@@ -56,10 +61,10 @@ fun SweetNavGraph(
             )
         }
 
-        composable(Destinations.CONVERSATION) { backStackEntry ->
-            val chatId = backStackEntry.arguments?.getString("chatId") ?: "0"
-            ConversationPlaceholderScreen(
-                chatId = chatId,
+        composable(Destinations.CONVERSATION) {
+            val chatViewModel: ChatViewModel = hiltViewModel()
+            ConversationScreen(
+                viewModel = chatViewModel,
                 onBackClick = { navController.popBackStack() }
             )
         }
@@ -71,6 +76,9 @@ fun SweetNavGraph(
                 },
                 onNavigateToAppearance = {
                     navController.navigate(Destinations.APPEARANCE_SETTINGS)
+                },
+                onNavigateToDiscovery = {
+                    navController.navigate(Destinations.DISCOVERY_SETTINGS)
                 },
                 onBackClick = { navController.popBackStack() }
             )
@@ -96,11 +104,22 @@ fun SweetNavGraph(
             )
         }
 
+        composable(Destinations.DISCOVERY_SETTINGS) {
+            val discoveryViewModel: DiscoveryViewModel = hiltViewModel()
+            DiscoverySettingsScreen(
+                viewModel = discoveryViewModel,
+                onBackClick = { navController.popBackStack() }
+            )
+        }
+
         composable(Destinations.NEARBY_RADAR) {
             val nearbyViewModel: NearbyRadarViewModel = hiltViewModel()
             NearbyRadarScreen(
                 viewModel = nearbyViewModel,
                 onBackClick = { navController.popBackStack() },
+                onNavigateToDiscoverySettings = {
+                    navController.navigate(Destinations.DISCOVERY_SETTINGS)
+                },
                 onStartChat = { userId ->
                     navController.navigate("conversation/$userId")
                 }

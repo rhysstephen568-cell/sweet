@@ -2,6 +2,7 @@ package com.sweet.app.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sweet.app.core.datastore.DiscoveryScanType
 import com.sweet.app.core.datastore.UserPreferences
 import com.sweet.app.core.datastore.UserPreferencesRepository
 import com.sweet.app.core.designsystem.CatppuccinVariant
@@ -27,7 +28,9 @@ class ThemeViewModel @Inject constructor(
             followSystem = true,
             catppuccinVariant = CatppuccinVariant.MOCHA,
             fontScale = 1.0f,
-            cornerRadiusPreset = CornerRadiusPreset.DEFAULT
+            cornerRadiusPreset = CornerRadiusPreset.DEFAULT,
+            discoveryScanType = DiscoveryScanType.RADIAL,
+            discoverableLocalNetwork = "Everyone"
         )
     )
 
