@@ -48,6 +48,7 @@ fun NearbyRadarScreen(
 ) {
     val peers by viewModel.peers.collectAsState()
     val prefs by viewModel.preferences.collectAsState()
+    val wifiState by viewModel.wifiState.collectAsState()
     val selectedPeer by viewModel.selectedPeer.collectAsState()
     val isListView by viewModel.isListView.collectAsState()
     val blockedPeerIds by viewModel.blockedPeerIds.collectAsState()
@@ -95,7 +96,17 @@ fun NearbyRadarScreen(
     Scaffold(
         topBar = {
             SweetTopAppBar(
-                title = { Text(if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) "Radial Scan" else "360° Pulse Scan") },
+                title = {
+                    Column {
+                        Text(if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) "Radial Scan" else "360° Pulse Scan", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Wi-Fi LAN Active: ${wifiState.ssid} ${if (wifiState.ipAddress != null) "(${wifiState.ipAddress})" else ""}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = extendedColors.onlineIndicator,
+                            fontSize = 10.sp
+                        )
+                    }
+                },
                 onBackClick = onBackClick,
                 actions = {
                     IconButton(onClick = onNavigateToDiscoverySettings) {

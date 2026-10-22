@@ -10,6 +10,8 @@ import com.sweet.app.core.designsystem.CornerRadiusPreset
 import com.sweet.app.core.designsystem.SweetAppearance
 import com.sweet.app.core.network.nearby.NearbyPeer
 import com.sweet.app.core.network.nearby.PeerDiscoveryRepository
+import com.sweet.app.core.network.wifi.WifiNetworkMonitor
+import com.sweet.app.core.network.wifi.WifiStateInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -18,11 +20,13 @@ import javax.inject.Inject
 @HiltViewModel
 class NearbyRadarViewModel @Inject constructor(
     private val peerDiscoveryRepository: PeerDiscoveryRepository,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val wifiNetworkMonitor: WifiNetworkMonitor
 ) : ViewModel() {
 
     val peers: StateFlow<List<NearbyPeer>> = peerDiscoveryRepository.peers
     val isDiscovering: StateFlow<Boolean> = peerDiscoveryRepository.isDiscovering
+    val wifiState: StateFlow<WifiStateInfo> = wifiNetworkMonitor.wifiState
 
     val preferences: StateFlow<UserPreferences> = userPreferencesRepository.userPreferences.stateIn(
         scope = viewModelScope,
@@ -48,6 +52,7 @@ class NearbyRadarViewModel @Inject constructor(
     val blockedPeerIds: StateFlow<Set<String>> = _blockedPeerIds.asStateFlow()
 
     init {
+        wifiNetworkMonitor.startMonitoring()
         viewModelScope.launch {
             userPreferencesRepository.userPreferences.collect { prefs ->
                 peerDiscoveryRepository.startDiscovery(
@@ -81,6 +86,7 @@ class NearbyRadarViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        wifiNetworkMonitor.stopMonitoring()
         peerDiscoveryRepository.stopDiscovery()
     }
 }
