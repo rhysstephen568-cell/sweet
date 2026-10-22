@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SWEET WebSocket Event Schema",
+  "type": "object",
+  "required": ["event", "payload", "timestamp"],
+  "properties": {
+    "event": {
+      "type": "string",
+      "enum": [
+        "message.new",
+        "message.edited",
+        "message.deleted",
+        "message.read",
+        "typing",
+        "reaction.added"
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "messageId": { "type": "string" },
+        "clientMessageId": { "type": "string" },
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "content": { "type": "string" },
+        "pts": { "type": "integer" }
+      }
+    },
+    "timestamp": { "type": "integer" }
+  }
+}

@@ -1,0 +1,154 @@
+openapi: 3.0.3
+info:
+  title: SWEET Messaging API
+  description: Telegram-style cloud & secret messaging backend API specification.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local Development Server
+
+paths:
+  /auth/request-code:
+    post:
+      summary: Request SMS authentication code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phoneNumber]
+              properties:
+                phoneNumber:
+                  type: string
+                  example: "+1234567890"
+      responses:
+        '200':
+          description: Code sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestId:
+                    type: string
+
+  /auth/verify-code:
+    post:
+      summary: Verify SMS authentication code and return JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phoneNumber, code]
+              properties:
+                phoneNumber:
+                  type: string
+                code:
+                  type: string
+                  example: "123456"
+      responses:
+        '200':
+          description: Verification successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  userId:
+                    type: string
+                  isNewUser:
+                    type: boolean
+
+  /users/me:
+    get:
+      summary: Get current authenticated user profile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User profile details
+    put:
+      summary: Update user profile
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName:
+                  type: string
+                username:
+                  type: string
+                bio:
+                  type: string
+      responses:
+        '200':
+          description: Profile updated
+
+  /chats:
+    get:
+      summary: List user active chats and channels
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of chats
+    post:
+      summary: Create a new private chat, group, or channel
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type:
+                  type: string
+                  enum: [private, group, channel, secret]
+                recipientId:
+                  type: string
+                title:
+                  type: string
+      responses:
+        '201':
+          description: Chat created
+
+  /messages:
+    post:
+      summary: Send a message
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId, clientMessageId, content]
+              properties:
+                chatId:
+                  type: string
+                clientMessageId:
+                  type: string
+                content:
+                  type: string
+                mediaUrl:
+                  type: string
+      responses:
+        '200':
+          description: Message accepted
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
