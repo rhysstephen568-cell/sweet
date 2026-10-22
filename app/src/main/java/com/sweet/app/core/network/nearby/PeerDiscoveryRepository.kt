@@ -4,12 +4,14 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
+import android.os.Build
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.net.*
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -48,8 +50,20 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
     private val DISCOVERY_PORT = 9877
     private val HANDSHAKE_PORT = 9878
 
+    private fun getDeviceModelName(): String {
+        val manufacturer = Build.MANUFACTURER
+        val model = Build.MODEL
+        return if (model.lowercase(Locale.ROOT).startsWith(manufacturer.lowercase(Locale.ROOT))) {
+            model.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+        } else {
+            "${manufacturer.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }} $model"
+        }
+    }
+
     override fun startDiscovery(currentUserId: String, displayName: String) {
         if (_isDiscovering.value) return
+
+        val myModelName = getDeviceModelName()
 
         runCatching {
             if (multicastLock == null) {
@@ -60,12 +74,13 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
             multicastLock?.acquire()
         }
 
+        // 1. Register NSD Service with device model name
         serviceInfo = NsdServiceInfo().apply {
             serviceName = "SWEET_$currentUserId"
             serviceType = SERVICE_TYPE
             port = HANDSHAKE_PORT
             setAttribute("userId", currentUserId)
-            setAttribute("displayName", displayName)
+            setAttribute("displayName", myModelName)
             setAttribute("discoverable", "true")
         }
 
@@ -115,8 +130,8 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
 
         _isDiscovering.value = true
 
-        startTcpDiscoveryServer(currentUserId, displayName)
-        startUdpHeartbeat(currentUserId, displayName)
+        startTcpDiscoveryServer(currentUserId, myModelName)
+        startUdpHeartbeat(currentUserId, myModelName)
         startSubnetScanner(currentUserId)
 
         cleanupJob?.cancel()
@@ -197,27 +212,33 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                         bind(InetSocketAddress(DISCOVERY_PORT))
                     }
                     val buffer = ByteArray(1024)
+                    val myIp = getLocalIpAddress()
+
                     while (isActive) {
                         val packet = DatagramPacket(buffer, buffer.size)
                         socket.receive(packet)
-                        val receivedStr = String(packet.data, 0, packet.length)
-                        val parts = receivedStr.split("|")
-                        if (parts.size >= 3 && parts[0] == "HEARTBEAT") {
-                            val userId = parts[1]
-                            val name = parts[2]
-                            val host = packet.address.hostAddress ?: "127.0.0.1"
+                        val packetIp = packet.address.hostAddress
 
-                            if (userId != currentUserId) {
-                                val newPeer = NearbyPeer(
-                                    userId = userId,
-                                    name = name,
-                                    host = host,
-                                    port = HANDSHAKE_PORT,
-                                    rttMs = 12L,
-                                    lastSeenTimestamp = System.currentTimeMillis(),
-                                    isSweetUser = true
-                                )
-                                _peers.value = _peers.value.filterNot { it.userId == userId } + newPeer
+                        // STRICT SELF-PING PREVENTION: Ignore packets from self!
+                        if (packetIp != null && packetIp != myIp) {
+                            val receivedStr = String(packet.data, 0, packet.length)
+                            val parts = receivedStr.split("|")
+                            if (parts.size >= 3 && parts[0] == "HEARTBEAT") {
+                                val userId = parts[1]
+                                val name = parts[2]
+
+                                if (userId != currentUserId) {
+                                    val newPeer = NearbyPeer(
+                                        userId = userId,
+                                        name = name,
+                                        host = packetIp,
+                                        port = HANDSHAKE_PORT,
+                                        rttMs = 12L,
+                                        lastSeenTimestamp = System.currentTimeMillis(),
+                                        isSweetUser = true
+                                    )
+                                    _peers.value = _peers.value.filterNot { it.userId == userId } + newPeer
+                                }
                             }
                         }
                     }
@@ -237,14 +258,14 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                         val ipsToScan = listOf("10.0.2.2", "10.0.2.15") + (1..30).map { "$prefix$it" }
 
                         ipsToScan.forEach { targetIp ->
-                            if (targetIp != myIp) {
+                            // STRICT SELF-PING PREVENTION: Do not ping self IP!
+                            if (targetIp != myIp && targetIp != "127.0.0.1") {
                                 launch {
                                     runCatching {
                                         val inetAddr = InetAddress.getByName(targetIp)
                                         val isReachable = inetAddr.isReachable(200)
 
                                         if (isReachable) {
-                                            // Check if SWEET port 9878 is open on this device
                                             var isSweet = false
                                             var peerId = "usr_lan_${targetIp.replace(".", "_")}"
                                             var peerName = "LAN Device ($targetIp)"
@@ -260,7 +281,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                                     if (response?.startsWith("SWEET_PONG") == true) {
                                                         val parts = response.split("|")
                                                         peerId = parts.getOrNull(1) ?: peerId
-                                                        peerName = parts.getOrNull(2) ?: "SWEET User"
+                                                        peerName = parts.getOrNull(2) ?: "SWEET Device"
                                                         isSweet = true
                                                     }
                                                 }
@@ -333,24 +354,27 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
 
             override fun onServiceResolved(resolvedService: NsdServiceInfo) {
                 val userId = resolvedService.attributes["userId"]?.let { String(it) } ?: resolvedService.serviceName
-                val name = resolvedService.attributes["displayName"]?.let { String(it) } ?: "Nearby User"
+                val name = resolvedService.attributes["displayName"]?.let { String(it) } ?: "Nearby Device"
                 @Suppress("DEPRECATION")
                 val host = resolvedService.host?.hostAddress ?: return
                 val port = resolvedService.port
 
-                scope.launch {
-                    val rtt = measureLatency(host, port)
-                    val updatedPeer = NearbyPeer(
-                        userId = userId,
-                        name = name,
-                        host = host,
-                        port = port,
-                        rttMs = rtt,
-                        lastSeenTimestamp = System.currentTimeMillis(),
-                        isSweetUser = true
-                    )
+                val myIp = getLocalIpAddress()
+                if (host != myIp && userId != "usr_self_101") {
+                    scope.launch {
+                        val rtt = measureLatency(host, port)
+                        val updatedPeer = NearbyPeer(
+                            userId = userId,
+                            name = name,
+                            host = host,
+                            port = port,
+                            rttMs = rtt,
+                            lastSeenTimestamp = System.currentTimeMillis(),
+                            isSweetUser = true
+                        )
 
-                    _peers.value = _peers.value.filterNot { it.userId == userId } + updatedPeer
+                        _peers.value = _peers.value.filterNot { it.userId == userId } + updatedPeer
+                    }
                 }
             }
         })

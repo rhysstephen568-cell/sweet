@@ -17,8 +17,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.NetworkInterface
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -65,7 +67,8 @@ class LanShareNotificationManager @Inject constructor(
             runCatching {
                 val socket = DatagramSocket()
                 socket.broadcast = true
-                val payload = "SWEET_LAN_SHARE_NOTIF|$shareUrl|$senderName"
+                val myIp = getLocalIpAddress() ?: "127.0.0.1"
+                val payload = "SWEET_LAN_SHARE_NOTIF|$shareUrl|$senderName|$myIp"
                 val bytes = payload.toByteArray()
 
                 val packet = DatagramPacket(bytes, bytes.size, InetAddress.getByName("255.255.255.255"), NOTIF_PORT)
@@ -91,15 +94,24 @@ class LanShareNotificationManager @Inject constructor(
                 while (isActive) {
                     val packet = DatagramPacket(buffer, buffer.size)
                     socket.receive(packet)
-                    val receivedStr = String(packet.data, 0, packet.length)
-                    val parts = receivedStr.split("|")
+                    val senderIp = packet.address.hostAddress
+                    val myIp = getLocalIpAddress()
 
-                    if (parts.size >= 3 && parts[0] == "SWEET_LAN_SHARE_NOTIF") {
-                        val shareUrl = parts[1]
-                        val senderName = parts[2]
+                    // STRICT SELF-PING / SELF-NOTIFICATION PREVENTION
+                    if (senderIp != null && senderIp != myIp) {
+                        val receivedStr = String(packet.data, 0, packet.length)
+                        val parts = receivedStr.split("|")
 
-                        _incomingShareRequest.value = LanShareRequest(senderName, shareUrl)
-                        showHeadsUpNotification(senderName, shareUrl)
+                        if (parts.size >= 3 && parts[0] == "SWEET_LAN_SHARE_NOTIF") {
+                            val shareUrl = parts[1]
+                            val senderName = parts[2]
+                            val originIp = parts.getOrNull(3) ?: ""
+
+                            if (originIp != myIp) {
+                                _incomingShareRequest.value = LanShareRequest(senderName, shareUrl)
+                                showHeadsUpNotification(senderName, shareUrl)
+                            }
+                        }
                     }
                 }
             }
@@ -139,6 +151,25 @@ class LanShareNotificationManager @Inject constructor(
             } else {
                 notificationManager.notify(1001, builder.build())
             }
+        }
+    }
+
+    private fun getLocalIpAddress(): String? {
+        return try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+                val addresses = networkInterface.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val addr = addresses.nextElement()
+                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                        return addr.hostAddress
+                    }
+                }
+            }
+            null
+        } catch (_: Exception) {
+            null
         }
     }
 }
