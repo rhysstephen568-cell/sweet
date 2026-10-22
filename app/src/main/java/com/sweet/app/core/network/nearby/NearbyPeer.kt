@@ -29,11 +29,11 @@ data class NearbyPeer(
     val rttMs: Long,
     val lastSeenTimestamp: Long = System.currentTimeMillis(),
     val signalLevel: Int = -50,
-    val isBlocked: Boolean = false
+    val isBlocked: Boolean = false,
+    val isSweetUser: Boolean = true
 ) {
     val proximityTier: ProximityTier get() = ProximityTier.fromRtt(rttMs)
 
-    // Stable angle calculation derived from userId hash to prevent node jumping
     val stableAngleRad: Float
         get() {
             val hash = abs(userId.hashCode())

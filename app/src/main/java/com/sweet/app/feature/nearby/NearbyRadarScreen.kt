@@ -1,6 +1,7 @@
 package com.sweet.app.feature.nearby
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,10 +13,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Radar
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,8 +26,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -46,14 +51,17 @@ fun NearbyRadarScreen(
     onNavigateToDiscoverySettings: () -> Unit,
     onStartChat: (String) -> Unit
 ) {
+    val context = LocalContext.current
     val peers by viewModel.peers.collectAsState()
     val prefs by viewModel.preferences.collectAsState()
     val wifiState by viewModel.wifiState.collectAsState()
     val selectedPeer by viewModel.selectedPeer.collectAsState()
     val isListView by viewModel.isListView.collectAsState()
     val blockedPeerIds by viewModel.blockedPeerIds.collectAsState()
+    val shareUrl by viewModel.shareUrl.collectAsState()
 
-    // Request runtime Wi-Fi discovery permissions upon opening screen
+    var showShareDialog by remember { mutableStateOf(false) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { _ -> }
@@ -120,6 +128,19 @@ fun NearbyRadarScreen(
                     }
                 }
             )
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = {
+                    viewModel.startShareApp()
+                    showShareDialog = true
+                },
+                icon = { Icon(Icons.Default.Share, contentDescription = "Share App") },
+                text = { Text("Share App") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = SweetTheme.shapes.buttonShape
+            )
         }
     ) { innerPadding ->
         Box(
@@ -130,7 +151,7 @@ fun NearbyRadarScreen(
             if (isListView) {
                 if (visiblePeers.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No nearby users found on this Wi-Fi network.\nCheck if Wi-Fi client isolation is enabled.", fontSize = 14.sp)
+                        Text("No nearby users or LAN devices found on this Wi-Fi network.\nCheck if Wi-Fi client isolation is enabled.", fontSize = 14.sp)
                     }
                 } else {
                     LazyColumn(
@@ -158,18 +179,34 @@ fun NearbyRadarScreen(
                                             modifier = Modifier
                                                 .size(40.dp)
                                                 .clip(CircleShape)
-                                                .background(primaryColor),
+                                                .background(if (peer.isSweetUser) primaryColor else MaterialTheme.colorScheme.secondary),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(peer.name.take(1), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
                                         }
                                         Column {
-                                            Text(peer.name, fontWeight = FontWeight.Bold)
-                                            Text("${peer.proximityTier.label} (${peer.rttMs}ms)", style = MaterialTheme.typography.bodySmall)
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text(peer.name, fontWeight = FontWeight.Bold)
+                                                if (!peer.isSweetUser) {
+                                                    Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                                                        Text("LAN Device", fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                                    }
+                                                }
+                                            }
+                                            Text("IP: ${peer.host} • ${peer.proximityTier.label}", style = MaterialTheme.typography.bodySmall)
                                         }
                                     }
-                                    Button(onClick = { onStartChat(peer.userId) }) {
-                                        Text("Chat")
+                                    if (peer.isSweetUser) {
+                                        Button(onClick = { onStartChat(peer.userId) }) {
+                                            Text("Chat")
+                                        }
+                                    } else {
+                                        OutlinedButton(onClick = {
+                                            viewModel.startShareApp()
+                                            showShareDialog = true
+                                        }) {
+                                            Text("Share App")
+                                        }
                                     }
                                 }
                             }
@@ -289,8 +326,9 @@ fun NearbyRadarScreen(
                                 Offset(center.x + r * cos(angleRad), center.y + r * sin(angleRad))
                             }
 
+                            val nodeColor = if (peer.isSweetUser) extendedColors.onlineIndicator else Color(0xFFFFA000)
                             drawCircle(
-                                color = extendedColors.onlineIndicator,
+                                color = nodeColor,
                                 radius = 18.dp.toPx(),
                                 center = nodePos
                             )
@@ -304,10 +342,10 @@ fun NearbyRadarScreen(
                     ) {
                         if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) {
                             Text("• Mode: Radial Scan (Concentric Latency Tiers)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text("• Ring 1: Very Close (<15ms) • Ring 2: Close (<40ms)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("• Green = SWEET Active • Orange = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             Text("• Mode: 360° Pulse Scan (Expanding Wave Pulse)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text("• 360-degree radar spectrum wave discovery", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("• Green = SWEET Active • Orange = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -328,29 +366,45 @@ fun NearbyRadarScreen(
                             modifier = Modifier
                                 .size(64.dp)
                                 .clip(CircleShape)
-                                .background(primaryColor),
+                                .background(if (peer.isSweetUser) primaryColor else MaterialTheme.colorScheme.secondary),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(peer.name.take(1), color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.headlineSmall)
                         }
                         Text(peer.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("IP: ${peer.host} • Latency: ${peer.rttMs} ms", style = MaterialTheme.typography.bodyMedium)
+                        Text("IP: ${peer.host} • Status: ${if (peer.isSweetUser) "SWEET Active" else "LAN Device (SWEET Not Installed)"}", style = MaterialTheme.typography.bodyMedium)
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Button(
-                                onClick = {
-                                    viewModel.selectPeer(null)
-                                    onStartChat(peer.userId)
-                                },
-                                modifier = Modifier.weight(1f),
-                                shape = SweetTheme.shapes.buttonShape
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Start Chat")
+                            if (peer.isSweetUser) {
+                                Button(
+                                    onClick = {
+                                        viewModel.selectPeer(null)
+                                        onStartChat(peer.userId)
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = SweetTheme.shapes.buttonShape
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Start Chat")
+                                }
+                            } else {
+                                Button(
+                                    onClick = {
+                                        viewModel.selectPeer(null)
+                                        viewModel.startShareApp()
+                                        showShareDialog = true
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = SweetTheme.shapes.buttonShape
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Share App over LAN")
+                                }
                             }
 
                             OutlinedButton(
@@ -363,6 +417,53 @@ fun NearbyRadarScreen(
                         }
                     }
                 }
+            }
+
+            if (showShareDialog) {
+                AlertDialog(
+                    onDismissRequest = { showShareDialog = false },
+                    title = { Text("Share SWEET App over LAN") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Any device on this Wi-Fi network (browser, phone, tablet, PC) can open this URL to download SWEET directly over LAN:")
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = shareUrl ?: "http://${wifiState.ipAddress ?: "127.0.0.1"}:9880/sweet.apk",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                    putExtra(Intent.EXTRA_TEXT, "Download SWEET App on Wi-Fi: ${shareUrl ?: ""}")
+                                    type = "text/plain"
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, "Share Download Link"))
+                            }
+                        ) {
+                            Text("Share Link")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = {
+                                showShareDialog = false
+                                viewModel.stopShareApp()
+                            }
+                        ) {
+                            Text("Close")
+                        }
+                    }
+                )
             }
         }
     }

@@ -60,7 +60,6 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
             multicastLock?.acquire()
         }
 
-        // 1. Register NSD Service
         serviceInfo = NsdServiceInfo().apply {
             serviceName = "SWEET_$currentUserId"
             serviceType = SERVICE_TYPE
@@ -116,16 +115,10 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
 
         _isDiscovering.value = true
 
-        // 2. Start TCP Discovery Handshake Server
         startTcpDiscoveryServer(currentUserId, displayName)
-
-        // 3. Start UDP Heartbeat Broadcaster & Listener (with SO_REUSEADDR)
         startUdpHeartbeat(currentUserId, displayName)
-
-        // 4. Start Subnet Scanner Sweep
         startSubnetScanner(currentUserId)
 
-        // 5. Expiry Cleanup
         cleanupJob?.cancel()
         cleanupJob = scope.launch {
             while (isActive) {
@@ -166,7 +159,6 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
     private fun startUdpHeartbeat(currentUserId: String, displayName: String) {
         heartbeatJob?.cancel()
         heartbeatJob = scope.launch {
-            // Heartbeat Broadcaster
             launch {
                 while (isActive) {
                     runCatching {
@@ -175,13 +167,11 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                         val payload = "HEARTBEAT|$currentUserId|$displayName"
                         val bytes = payload.toByteArray()
 
-                        // Broadcast to 255.255.255.255
                         runCatching {
                             val packet = DatagramPacket(bytes, bytes.size, InetAddress.getByName("255.255.255.255"), DISCOVERY_PORT)
                             socket.send(packet)
                         }
 
-                        // Broadcast to specific Subnet Broadcast IP if available
                         getSubnetBroadcastAddress()?.let { subnetBroadcast ->
                             runCatching {
                                 val packet = DatagramPacket(bytes, bytes.size, subnetBroadcast, DISCOVERY_PORT)
@@ -189,7 +179,6 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                             }
                         }
 
-                        // Broadcast to Emulator Host Gateway
                         runCatching {
                             val packet = DatagramPacket(bytes, bytes.size, InetAddress.getByName("10.0.2.2"), DISCOVERY_PORT)
                             socket.send(packet)
@@ -201,7 +190,6 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                 }
             }
 
-            // Heartbeat Listener with SO_REUSEADDR
             launch {
                 runCatching {
                     val socket = DatagramSocket(null).apply {
@@ -226,7 +214,8 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                     host = host,
                                     port = HANDSHAKE_PORT,
                                     rttMs = 12L,
-                                    lastSeenTimestamp = System.currentTimeMillis()
+                                    lastSeenTimestamp = System.currentTimeMillis(),
+                                    isSweetUser = true
                                 )
                                 _peers.value = _peers.value.filterNot { it.userId == userId } + newPeer
                             }
@@ -245,36 +234,51 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                     val myIp = getLocalIpAddress()
                     if (myIp != null && myIp.contains(".")) {
                         val prefix = myIp.substringBeforeLast(".") + "."
-                        // Sweep active subnet IP range
                         val ipsToScan = listOf("10.0.2.2", "10.0.2.15") + (1..30).map { "$prefix$it" }
-                        
+
                         ipsToScan.forEach { targetIp ->
                             if (targetIp != myIp) {
                                 launch {
                                     runCatching {
-                                        Socket().use { socket ->
-                                            socket.connect(InetSocketAddress(targetIp, HANDSHAKE_PORT), 300)
-                                            val writer = socket.getOutputStream().bufferedWriter()
-                                            val reader = socket.getInputStream().bufferedReader()
-                                            writer.write("SWEET_PING\n")
-                                            writer.flush()
-                                            val response = reader.readLine()
-                                            if (response?.startsWith("SWEET_PONG") == true) {
-                                                val parts = response.split("|")
-                                                val peerId = parts.getOrNull(1) ?: "usr_peer"
-                                                val name = parts.getOrNull(2) ?: "Nearby User"
+                                        val inetAddr = InetAddress.getByName(targetIp)
+                                        val isReachable = inetAddr.isReachable(200)
 
-                                                if (peerId != currentUserId) {
-                                                    val peer = NearbyPeer(
-                                                        userId = peerId,
-                                                        name = name,
-                                                        host = targetIp,
-                                                        port = HANDSHAKE_PORT,
-                                                        rttMs = 10L,
-                                                        lastSeenTimestamp = System.currentTimeMillis()
-                                                    )
-                                                    _peers.value = _peers.value.filterNot { it.userId == peerId } + peer
+                                        if (isReachable) {
+                                            // Check if SWEET port 9878 is open on this device
+                                            var isSweet = false
+                                            var peerId = "usr_lan_${targetIp.replace(".", "_")}"
+                                            var peerName = "LAN Device ($targetIp)"
+
+                                            try {
+                                                Socket().use { socket ->
+                                                    socket.connect(InetSocketAddress(targetIp, HANDSHAKE_PORT), 250)
+                                                    val writer = socket.getOutputStream().bufferedWriter()
+                                                    val reader = socket.getInputStream().bufferedReader()
+                                                    writer.write("SWEET_PING\n")
+                                                    writer.flush()
+                                                    val response = reader.readLine()
+                                                    if (response?.startsWith("SWEET_PONG") == true) {
+                                                        val parts = response.split("|")
+                                                        peerId = parts.getOrNull(1) ?: peerId
+                                                        peerName = parts.getOrNull(2) ?: "SWEET User"
+                                                        isSweet = true
+                                                    }
                                                 }
+                                            } catch (_: Exception) {
+                                                isSweet = false
+                                            }
+
+                                            if (peerId != currentUserId) {
+                                                val peer = NearbyPeer(
+                                                    userId = peerId,
+                                                    name = peerName,
+                                                    host = targetIp,
+                                                    port = HANDSHAKE_PORT,
+                                                    rttMs = if (isSweet) 10L else 35L,
+                                                    lastSeenTimestamp = System.currentTimeMillis(),
+                                                    isSweetUser = isSweet
+                                                )
+                                                _peers.value = _peers.value.filterNot { it.userId == peerId } + peer
                                             }
                                         }
                                     }
@@ -290,6 +294,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
 
     private fun getSubnetBroadcastAddress(): InetAddress? {
         return try {
+            @Suppress("DEPRECATION")
             val dhcp = wifiManager.dhcpInfo ?: return null
             val broadcast = (dhcp.ipAddress and dhcp.netmask) or dhcp.netmask.inv()
             val quads = ByteArray(4)
@@ -341,7 +346,8 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                         host = host,
                         port = port,
                         rttMs = rtt,
-                        lastSeenTimestamp = System.currentTimeMillis()
+                        lastSeenTimestamp = System.currentTimeMillis(),
+                        isSweetUser = true
                     )
 
                     _peers.value = _peers.value.filterNot { it.userId == userId } + updatedPeer
