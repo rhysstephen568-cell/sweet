@@ -101,6 +101,17 @@ fun NearbyRadarScreen(
         label = "PulseProgress"
     )
 
+    // 5-second scale pulse animation for discovered non-SWEET LAN devices (2.5s scale up + 2.5s scale down = 5s cycle)
+    val lanNodePulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "LanNodePulseScale"
+    )
+
     Scaffold(
         topBar = {
             SweetTopAppBar(
@@ -326,10 +337,22 @@ fun NearbyRadarScreen(
                                 Offset(center.x + r * cos(angleRad), center.y + r * sin(angleRad))
                             }
 
+                            val baseRadius = 18.dp.toPx()
+                            val nodeRadius = if (peer.isSweetUser) baseRadius else baseRadius * lanNodePulseScale
                             val nodeColor = if (peer.isSweetUser) extendedColors.onlineIndicator else Color(0xFFFFA000)
+
+                            // 5-second pulsing outer aura glow ring for discovered non-SWEET LAN devices
+                            if (!peer.isSweetUser) {
+                                drawCircle(
+                                    color = Color(0xFFFFA000).copy(alpha = (0.35f * (1.3f - (lanNodePulseScale - 0.85f))).coerceIn(0.05f, 0.45f)),
+                                    radius = nodeRadius * 1.45f,
+                                    center = nodePos
+                                )
+                            }
+
                             drawCircle(
                                 color = nodeColor,
-                                radius = 18.dp.toPx(),
+                                radius = nodeRadius,
                                 center = nodePos
                             )
                         }
@@ -342,10 +365,10 @@ fun NearbyRadarScreen(
                     ) {
                         if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) {
                             Text("• Mode: Radial Scan (Concentric Latency Tiers)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text("• Green = SWEET Active • Orange = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("• Green = SWEET Active • Orange Pulse = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             Text("• Mode: 360° Pulse Scan (Expanding Wave Pulse)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text("• Green = SWEET Active • Orange = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("• Green = SWEET Active • Orange Pulse = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
