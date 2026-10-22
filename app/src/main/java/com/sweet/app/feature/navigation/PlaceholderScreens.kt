@@ -6,6 +6,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -17,12 +19,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sweet.app.R
 import com.sweet.app.core.designsystem.SweetTheme
+import com.sweet.app.core.designsystem.SweetTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthPlaceholderScreen(onLoginSuccess: () -> Unit) {
     Scaffold(
-        topBar = { TopAppBar(title = { Text("SWEET v0.01.1") }) }
+        topBar = { TopAppBar(title = { Text("SWEET v0.01.1.1") }) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -63,7 +66,8 @@ fun AuthPlaceholderScreen(onLoginSuccess: () -> Unit) {
 @Composable
 fun ChatListPlaceholderScreen(
     onNavigateToChat: (String) -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToNearbyRadar: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -77,10 +81,13 @@ fun ChatListPlaceholderScreen(
                                 .size(36.dp)
                                 .clip(CircleShape)
                         )
-                        Text("SWEET v0.01.1")
+                        Text("SWEET v0.01.1.1")
                     }
                 },
                 actions = {
+                    IconButton(onClick = onNavigateToNearbyRadar) {
+                        Icon(Icons.Default.Radar, contentDescription = "Nearby Radar")
+                    }
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
@@ -95,8 +102,30 @@ fun ChatListPlaceholderScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Nearby Radar Banner Shortcut
+            Card(
+                onClick = onNavigateToNearbyRadar,
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                shape = SweetTheme.shapes.cardShape
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(Icons.Default.Radar, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Column {
+                        Text("Nearby Radial Chat Discovery", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text("Discover & chat with people on your Wi-Fi network", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+            }
+
             Text(
-                text = "Chats Placeholder",
+                text = "Chats",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -125,7 +154,7 @@ fun ChatListPlaceholderScreen(
                         )
                         Column {
                             Text("SWEET Support Team", fontWeight = FontWeight.Bold)
-                            Text("Version 0.01.1 ready on uLesson device!", style = MaterialTheme.typography.bodyMedium)
+                            Text("Version 0.01.1.1 ready with Nearby Radar!", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                     Badge { Text("1") }
@@ -140,13 +169,9 @@ fun ChatListPlaceholderScreen(
 fun ConversationPlaceholderScreen(chatId: String, onBackClick: () -> Unit) {
     Scaffold(
         topBar = {
-            TopAppBar(
+            SweetTopAppBar(
                 title = { Text("Chat #$chatId") },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Text("< Back")
-                    }
-                }
+                onBackClick = onBackClick
             )
         }
     ) { padding ->
@@ -164,18 +189,15 @@ fun ConversationPlaceholderScreen(chatId: String, onBackClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsPlaceholderScreen(
+    onNavigateToProfile: () -> Unit,
     onNavigateToAppearance: () -> Unit,
     onBackClick: () -> Unit
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(
+            SweetTopAppBar(
                 title = { Text("Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Text("< Back")
-                    }
-                }
+                onBackClick = onBackClick
             )
         }
     ) { padding ->
@@ -186,6 +208,26 @@ fun SettingsPlaceholderScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Card(
+                onClick = onNavigateToProfile,
+                modifier = Modifier.fillMaxWidth(),
+                shape = SweetTheme.shapes.cardShape
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(Icons.Default.Person, contentDescription = "Profile")
+                    Column {
+                        Text("My Profile & Privacy", fontWeight = FontWeight.Bold)
+                        Text("Name, username, bio, and Wi-Fi privacy settings", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
             Card(
                 onClick = onNavigateToAppearance,
                 modifier = Modifier.fillMaxWidth(),

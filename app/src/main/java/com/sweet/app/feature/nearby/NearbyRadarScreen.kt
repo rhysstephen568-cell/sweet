@@ -1,0 +1,285 @@
+package com.sweet.app.feature.nearby
+
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Radar
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.sweet.app.core.designsystem.SweetTheme
+import com.sweet.app.core.designsystem.SweetTopAppBar
+import com.sweet.app.core.network.nearby.NearbyPeer
+import com.sweet.app.core.network.nearby.ProximityTier
+import kotlin.math.cos
+import kotlin.math.sin
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NearbyRadarScreen(
+    viewModel: NearbyRadarViewModel,
+    onBackClick: () -> Unit,
+    onStartChat: (String) -> Unit
+) {
+    val peers by viewModel.peers.collectAsState()
+    val selectedPeer by viewModel.selectedPeer.collectAsState()
+    val isListView by viewModel.isListView.collectAsState()
+    val blockedPeerIds by viewModel.blockedPeerIds.collectAsState()
+
+    val visiblePeers = remember(peers, blockedPeerIds) {
+        peers.filterNot { it.userId in blockedPeerIds }
+    }
+
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+    val extendedColors = SweetTheme.extended
+
+    val infiniteTransition = rememberInfiniteTransition(label = "RadarSweep")
+    val sweepAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(animation = tween(4000, easing = LinearEasing)),
+        label = "SweepAngle"
+    )
+
+    Scaffold(
+        topBar = {
+            SweetTopAppBar(
+                title = { Text("Nearby Radial Discovery") },
+                onBackClick = onBackClick,
+                actions = {
+                    IconButton(onClick = { viewModel.toggleListView() }) {
+                        Icon(
+                            imageVector = if (isListView) Icons.Default.Radar else Icons.AutoMirrored.Filled.List,
+                            contentDescription = if (isListView) "Show Radar View" else "Show List View"
+                        )
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            if (isListView) {
+                if (visiblePeers.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No nearby users found on this Wi-Fi network.\nCheck if Wi-Fi client isolation is enabled.", fontSize = 14.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(visiblePeers, key = { it.userId }) { peer ->
+                            Card(
+                                onClick = { viewModel.selectPeer(peer) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .semantics { contentDescription = "Nearby user ${peer.name}, latency ${peer.rttMs} ms" },
+                                shape = SweetTheme.shapes.cardShape
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(primaryColor),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(peer.name.take(1), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                                        }
+                                        Column {
+                                            Text(peer.name, fontWeight = FontWeight.Bold)
+                                            Text("${peer.proximityTier.label} (${peer.rttMs}ms)", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                    Button(onClick = { onStartChat(peer.userId) }) {
+                                        Text("Chat")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(visiblePeers) {
+                                detectTapGestures { offset ->
+                                    val center = Offset(size.width / 2f, size.height / 2f)
+                                    val maxRadius = minOf(size.width, size.height) * 0.42f
+
+                                    visiblePeers.forEach { peer ->
+                                        val tierRatio = when (peer.proximityTier) {
+                                            ProximityTier.VERY_CLOSE -> 0.25f
+                                            ProximityTier.CLOSE -> 0.50f
+                                            ProximityTier.FAR -> 0.75f
+                                            ProximityTier.DISTANT -> 0.95f
+                                        }
+                                        val r = maxRadius * tierRatio
+                                        val angleRad = peer.stableAngleRad
+                                        val px = center.x + r * cos(angleRad)
+                                        val py = center.y + r * sin(angleRad)
+
+                                        val dist = Offset(px, py).minus(offset).getDistance()
+                                        if (dist < 50f) {
+                                            viewModel.selectPeer(peer)
+                                        }
+                                    }
+                                }
+                            }
+                    ) {
+                        val center = Offset(size.width / 2f, size.height / 2f)
+                        val maxRadius = minOf(size.width, size.height) * 0.42f
+
+                        listOf(0.25f, 0.50f, 0.75f, 0.95f).forEach { ratio ->
+                            drawCircle(
+                                color = outlineColor,
+                                radius = maxRadius * ratio,
+                                center = center,
+                                style = Stroke(width = 2.dp.toPx())
+                            )
+                        }
+
+                        val sweepRad = Math.toRadians(sweepAngle.toDouble()).toFloat()
+                        val lineEnd = Offset(
+                            x = center.x + maxRadius * cos(sweepRad),
+                            y = center.y + maxRadius * sin(sweepRad)
+                        )
+                        drawLine(
+                            color = primaryColor.copy(alpha = 0.5f),
+                            start = center,
+                            end = lineEnd,
+                            strokeWidth = 3.dp.toPx()
+                        )
+
+                        drawCircle(
+                            color = primaryColor,
+                            radius = 20.dp.toPx(),
+                            center = center
+                        )
+
+                        visiblePeers.forEach { peer ->
+                            val tierRatio = when (peer.proximityTier) {
+                                ProximityTier.VERY_CLOSE -> 0.25f
+                                ProximityTier.CLOSE -> 0.50f
+                                ProximityTier.FAR -> 0.75f
+                                ProximityTier.DISTANT -> 0.95f
+                            }
+                            val r = maxRadius * tierRatio
+                            val angleRad = peer.stableAngleRad
+                            val nodePos = Offset(
+                                x = center.x + r * cos(angleRad),
+                                y = center.y + r * sin(angleRad)
+                            )
+
+                            drawCircle(
+                                color = extendedColors.onlineIndicator,
+                                radius = 16.dp.toPx(),
+                                center = nodePos
+                            )
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(8.dp)
+                    ) {
+                        Text("• Ring 1: Very Close (<15ms)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("• Ring 2: Close (<40ms)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("• Ring 3: Far (<100ms)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            selectedPeer?.let { peer ->
+                ModalBottomSheet(
+                    onDismissRequest = { viewModel.selectPeer(null) }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(primaryColor),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(peer.name.take(1), color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.headlineSmall)
+                        }
+                        Text(peer.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("IP: ${peer.host} • Latency: ${peer.rttMs} ms", style = MaterialTheme.typography.bodyMedium)
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    viewModel.selectPeer(null)
+                                    onStartChat(peer.userId)
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = SweetTheme.shapes.buttonShape
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Start Chat")
+                            }
+
+                            OutlinedButton(
+                                onClick = { viewModel.blockPeer(peer.userId) },
+                                modifier = Modifier.weight(1f),
+                                shape = SweetTheme.shapes.buttonShape
+                            ) {
+                                Text("Block Node")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -6,15 +6,21 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.sweet.app.feature.nearby.NearbyRadarScreen
+import com.sweet.app.feature.nearby.NearbyRadarViewModel
 import com.sweet.app.feature.settings.AppearanceSettingsScreen
 import com.sweet.app.feature.settings.ThemeViewModel
+import com.sweet.app.feature.settings.profile.ProfileSettingsScreen
+import com.sweet.app.feature.settings.profile.ProfileViewModel
 
 object Destinations {
     const val AUTH = "auth"
     const val CHAT_LIST = "chat_list"
     const val CONVERSATION = "conversation/{chatId}"
     const val SETTINGS = "settings"
+    const val PROFILE_SETTINGS = "profile_settings"
     const val APPEARANCE_SETTINGS = "appearance_settings"
+    const val NEARBY_RADAR = "nearby_radar"
 }
 
 @Composable
@@ -43,6 +49,9 @@ fun SweetNavGraph(
                 },
                 onNavigateToSettings = {
                     navController.navigate(Destinations.SETTINGS)
+                },
+                onNavigateToNearbyRadar = {
+                    navController.navigate(Destinations.NEARBY_RADAR)
                 }
             )
         }
@@ -57,6 +66,9 @@ fun SweetNavGraph(
 
         composable(Destinations.SETTINGS) {
             SettingsPlaceholderScreen(
+                onNavigateToProfile = {
+                    navController.navigate(Destinations.PROFILE_SETTINGS)
+                },
                 onNavigateToAppearance = {
                     navController.navigate(Destinations.APPEARANCE_SETTINGS)
                 },
@@ -64,10 +76,34 @@ fun SweetNavGraph(
             )
         }
 
+        composable(Destinations.PROFILE_SETTINGS) {
+            val profileViewModel: ProfileViewModel = hiltViewModel()
+            ProfileSettingsScreen(
+                viewModel = profileViewModel,
+                onBackClick = { navController.popBackStack() },
+                onNavigateToActiveSessions = {},
+                onNavigateToBlockedUsers = {},
+                onNavigateToAppearance = {
+                    navController.navigate(Destinations.APPEARANCE_SETTINGS)
+                }
+            )
+        }
+
         composable(Destinations.APPEARANCE_SETTINGS) {
             AppearanceSettingsScreen(
                 viewModel = themeViewModel,
                 onBackClick = { navController.popBackStack() }
+            )
+        }
+
+        composable(Destinations.NEARBY_RADAR) {
+            val nearbyViewModel: NearbyRadarViewModel = hiltViewModel()
+            NearbyRadarScreen(
+                viewModel = nearbyViewModel,
+                onBackClick = { navController.popBackStack() },
+                onStartChat = { userId ->
+                    navController.navigate("conversation/$userId")
+                }
             )
         }
     }
