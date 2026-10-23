@@ -12,7 +12,7 @@ data class ChatMessage(
     val content: String,
     val timestamp: Long = System.currentTimeMillis(),
     val isFromMe: Boolean,
-    val status: MessageStatus = MessageStatus.SENT,
+    val status: MessageStatus = MessageStatus.READ,
     val isSecret: Boolean = false,
     val selfDestructSeconds: Int = 0,
     val fileName: String? = null,
@@ -25,5 +25,9 @@ data class ChatMessage(
     val replyToSenderName: String? = null,
     val replyToContent: String? = null,
     val isStarred: Boolean = false,
-    val isDeleted: Boolean = false
+    val isDeleted: Boolean = false,
+    val reactions: Map<String, String> = emptyMap(),
+    val voiceNoteUri: String? = null,
+    val voiceNoteDurationMs: Long = 0L,
+    val imageUri: String? = null
 )

@@ -118,6 +118,10 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun addReaction(messageId: String, emoji: String) {
+        chatRepository.addReaction(chatId, messageId, emoji)
+    }
+
     fun toggleStarMessage(messageId: String) {
         chatRepository.toggleStarMessage(chatId, messageId)
     }

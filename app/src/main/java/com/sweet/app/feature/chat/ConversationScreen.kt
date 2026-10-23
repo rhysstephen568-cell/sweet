@@ -11,7 +11,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -222,7 +221,7 @@ fun ConversationScreen(
 
                         IconButton(
                             onClick = {
-                                viewModel.sendMessage()
+                                viewModel.sendMessage(replyToMsg = replyingToMessage)
                                 replyingToMessage = null
                             },
                             colors = IconButtonDefaults.iconButtonColors(
@@ -302,7 +301,7 @@ fun ConversationScreen(
                 }
             }
 
-            // Message Actions BottomSheet (Reply, Copy, Star, Delete)
+            // Message Actions BottomSheet (Reactions, Reply, Copy, Star, Delete)
             selectedMessageForActions?.let { msg ->
                 ModalBottomSheet(
                     onDismissRequest = { selectedMessageForActions = null }
@@ -313,7 +312,32 @@ fun ConversationScreen(
                             .padding(24.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("Message Actions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("Message Reactions & Actions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+                        // Emoji Reaction Bar
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceAround
+                        ) {
+                            listOf("👍", "❤️", "😂", "😮", "😢", "🙏").forEach { emoji ->
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clickable {
+                                            viewModel.addReaction(msg.id, emoji)
+                                            selectedMessageForActions = null
+                                        }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(emoji, fontSize = 20.sp)
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
 
                         ListItem(
                             headlineContent = { Text("Reply") },
@@ -376,8 +400,8 @@ fun ConversationScreen(
                             leadingContent = { Icon(Icons.Default.FlashOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                             modifier = Modifier.clickable {
                                 showAttachmentSheet = false
-                                val sampleFile = File(context.cacheDir, "sweet_beam_demo.pdf").apply {
-                                    writeText("SWEET Beam Offline P2P File Transfer Payload Test Data")
+                                val sampleFile = File(context.cacheDir, "medical_report_patient_1.pdf").apply {
+                                    writeText("SWEET Beam Diagnostic Medical Report Payload Data")
                                 }
                                 viewModel.sendBeamFile(sampleFile)
                             }
@@ -386,13 +410,13 @@ fun ConversationScreen(
                         HorizontalDivider()
 
                         ListItem(
-                            headlineContent = { Text("Photo or Video") },
+                            headlineContent = { Text("Medical Photo / X-Ray Image") },
                             leadingContent = { Icon(Icons.Default.Image, contentDescription = null) },
                             modifier = Modifier.clickable { showAttachmentSheet = false }
                         )
 
                         ListItem(
-                            headlineContent = { Text("Document") },
+                            headlineContent = { Text("Document / Prescription") },
                             leadingContent = { Icon(Icons.AutoMirrored.Filled.InsertDriveFile, contentDescription = null) },
                             modifier = Modifier.clickable { showAttachmentSheet = false }
                         )
@@ -492,6 +516,24 @@ fun MessageBubbleItem(
                         color = textColor,
                         fontSize = 14.sp
                     )
+                }
+
+                // Reactions Badge
+                if (message.reactions.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        message.reactions.values.distinct().forEach { emoji ->
+                            Surface(
+                                shape = CircleShape,
+                                color = textColor.copy(alpha = 0.2f),
+                                modifier = Modifier.padding(2.dp)
+                            ) {
+                                Text(emoji, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
