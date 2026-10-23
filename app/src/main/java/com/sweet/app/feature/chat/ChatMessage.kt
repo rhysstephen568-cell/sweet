@@ -20,5 +20,10 @@ data class ChatMessage(
     val isBeamFile: Boolean = false,
     val transferProgressPercent: Float = 0f,
     val transferSpeedMBs: Float = 0f,
-    val isTransferCompleted: Boolean = false
+    val isTransferCompleted: Boolean = false,
+    val replyToMessageId: String? = null,
+    val replyToSenderName: String? = null,
+    val replyToContent: String? = null,
+    val isStarred: Boolean = false,
+    val isDeleted: Boolean = false
 )

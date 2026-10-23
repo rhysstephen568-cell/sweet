@@ -14,8 +14,8 @@ android {
         applicationId = "com.sweet.app"
         minSdk = 26
         targetSdk = 30
-        versionCode = 18
-        versionName = "0.01.1.9"
+        versionCode = 19
+        versionName = "0.01.1.9.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

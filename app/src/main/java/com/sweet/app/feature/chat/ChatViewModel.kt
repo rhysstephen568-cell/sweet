@@ -67,7 +67,7 @@ class ChatViewModel @Inject constructor(
         _isSecretMode.value = !_isSecretMode.value
     }
 
-    fun sendMessage() {
+    fun sendMessage(replyToMsg: ChatMessage? = null) {
         val content = _inputText.value.trim()
         if (content.isNotEmpty()) {
             viewModelScope.launch {
@@ -83,7 +83,8 @@ class ChatViewModel @Inject constructor(
                     senderId = myUserId,
                     senderName = myDeviceName,
                     content = finalContent,
-                    isFromMe = true
+                    isFromMe = true,
+                    replyToMsg = replyToMsg
                 )
                 _inputText.value = ""
                 chatRepository.sendTypingSignal(chatId, false)
@@ -117,7 +118,11 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun toggleStarMessage(messageId: String) {
+        chatRepository.toggleStarMessage(chatId, messageId)
+    }
+
     fun deleteMessage(messageId: String) {
-        // Self-destruct message deletion
+        chatRepository.deleteMessage(chatId, messageId)
     }
 }

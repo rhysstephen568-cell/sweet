@@ -6,6 +6,8 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.sweet.app.feature.chat.ChatListScreen
+import com.sweet.app.feature.chat.ChatListViewModel
 import com.sweet.app.feature.chat.ChatViewModel
 import com.sweet.app.feature.chat.ConversationScreen
 import com.sweet.app.feature.nearby.NearbyRadarScreen
@@ -50,7 +52,9 @@ fun SweetNavGraph(
         }
 
         composable(Destinations.CHAT_LIST) {
-            ChatListPlaceholderScreen(
+            val chatListViewModel: ChatListViewModel = hiltViewModel()
+            ChatListScreen(
+                viewModel = chatListViewModel,
                 onNavigateToChat = { chatId ->
                     navController.navigate("conversation/$chatId")
                 },
