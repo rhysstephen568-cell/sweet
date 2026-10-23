@@ -1,6 +1,9 @@
 package com.sweet.app.feature.chat
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MarkChatRead
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Settings
@@ -28,7 +32,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatListScreen(
     viewModel: ChatListViewModel,
@@ -38,6 +42,7 @@ fun ChatListScreen(
 ) {
     val conversations by viewModel.conversations.collectAsState()
 
+    var selectedConversationForOptions by remember { mutableStateOf<ChatConversation?>(null) }
     var editingAliasChatId by remember { mutableStateOf<String?>(null) }
     var aliasInputText by remember { mutableStateOf("") }
 
@@ -106,11 +111,17 @@ fun ChatListScreen(
                         }
 
                         Card(
-                            onClick = {
-                                viewModel.markChatAsRead(conv.chatId)
-                                onNavigateToChat(conv.chatId)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .combinedClickable(
+                                    onClick = {
+                                        viewModel.markChatAsRead(conv.chatId)
+                                        onNavigateToChat(conv.chatId)
+                                    },
+                                    onLongClick = {
+                                        selectedConversationForOptions = conv
+                                    }
+                                ),
                             shape = SweetTheme.shapes.cardShape
                         ) {
                             Row(
@@ -184,34 +195,8 @@ fun ChatListScreen(
                                 ) {
                                     Text(timeStr, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        IconButton(
-                                            onClick = {
-                                                editingAliasChatId = conv.chatId
-                                                aliasInputText = conv.customAlias ?: ""
-                                            },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(Icons.Default.Edit, contentDescription = "Edit Name Alias", modifier = Modifier.size(16.dp))
-                                        }
-
-                                        IconButton(
-                                            onClick = { viewModel.togglePinConversation(conv.chatId) },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                if (conv.isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
-                                                contentDescription = "Pin Chat",
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-
-                                        if (conv.unreadCount > 0) {
-                                            Badge { Text(conv.unreadCount.toString()) }
-                                        }
+                                    if (conv.unreadCount > 0) {
+                                        Badge { Text(conv.unreadCount.toString()) }
                                     }
                                 }
                             }
@@ -220,11 +205,55 @@ fun ChatListScreen(
                 }
             }
 
+            // Long-Press Chat Options Menu
+            selectedConversationForOptions?.let { targetConv ->
+                ModalBottomSheet(
+                    onDismissRequest = { selectedConversationForOptions = null }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(targetConv.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+                        ListItem(
+                            headlineContent = { Text("Customize Friend's Name") },
+                            leadingContent = { Icon(Icons.Default.Edit, contentDescription = null) },
+                            modifier = Modifier.clickable {
+                                editingAliasChatId = targetConv.chatId
+                                aliasInputText = targetConv.customAlias ?: ""
+                                selectedConversationForOptions = null
+                            }
+                        )
+
+                        ListItem(
+                            headlineContent = { Text(if (targetConv.isPinned) "Unpin Chat" else "Pin Chat to Top") },
+                            leadingContent = { Icon(if (targetConv.isPinned) Icons.Outlined.PushPin else Icons.Default.PushPin, contentDescription = null) },
+                            modifier = Modifier.clickable {
+                                viewModel.togglePinConversation(targetConv.chatId)
+                                selectedConversationForOptions = null
+                            }
+                        )
+
+                        ListItem(
+                            headlineContent = { Text("Mark as Read") },
+                            leadingContent = { Icon(Icons.Default.MarkChatRead, contentDescription = null) },
+                            modifier = Modifier.clickable {
+                                viewModel.markChatAsRead(targetConv.chatId)
+                                selectedConversationForOptions = null
+                            }
+                        )
+                    }
+                }
+            }
+
             // Edit Personal Friend Alias Dialog
             editingAliasChatId?.let { targetChatId ->
                 AlertDialog(
                     onDismissRequest = { editingAliasChatId = null },
-                    title = { Text("Customize Friend Name") },
+                    title = { Text("Customize Friend's Name") },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Set a custom nickname for this friend. This only changes the name on your device, without overwriting their actual profile name:")

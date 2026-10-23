@@ -42,7 +42,10 @@ interface ChatRepository {
         senderName: String,
         content: String,
         isFromMe: Boolean,
-        replyToMsg: ChatMessage? = null
+        replyToMsg: ChatMessage? = null,
+        fileName: String? = null,
+        fileSizeStr: String? = null,
+        isBeamFile: Boolean = false
     )
     fun sendTypingSignal(chatId: String, isTyping: Boolean)
     fun togglePinConversation(chatId: String)
@@ -83,7 +86,7 @@ class ChatRepositoryImpl @Inject constructor(
             chatId = "101",
             senderId = "usr_support",
             senderName = "SWEET Support Team",
-            content = "Welcome to SWEET messenger v0.01.1.9.2! Real-time medical consultation & P2P active.",
+            content = "Welcome to SWEET messenger v0.01.1.9.3! Real-time Wi-Fi messaging active.",
             isFromMe = false,
             status = MessageStatus.READ
         )
@@ -140,7 +143,10 @@ class ChatRepositoryImpl @Inject constructor(
         senderName: String,
         content: String,
         isFromMe: Boolean,
-        replyToMsg: ChatMessage?
+        replyToMsg: ChatMessage?,
+        fileName: String?,
+        fileSizeStr: String?,
+        isBeamFile: Boolean
     ) {
         val canonicalId = getCanonicalChatId(chatId)
         val targetFlow = getOrCreateFlow(canonicalId)
@@ -155,11 +161,18 @@ class ChatRepositoryImpl @Inject constructor(
             status = MessageStatus.READ,
             replyToMessageId = replyToMsg?.id,
             replyToSenderName = replyToMsg?.senderName,
-            replyToContent = replyToMsg?.content
+            replyToContent = replyToMsg?.content,
+            fileName = fileName,
+            fileSizeStr = fileSizeStr,
+            isBeamFile = isBeamFile,
+            transferProgressPercent = if (isBeamFile) 100f else 0f
         )
 
-        targetFlow.value = targetFlow.value + newMsg
-        if (canonicalId != "101") {
+        // Prevent duplicate local appending
+        if (targetFlow.value.none { it.id == newMsg.id }) {
+            targetFlow.value = targetFlow.value + newMsg
+        }
+        if (canonicalId != "101" && defaultFlow.value.none { it.id == newMsg.id }) {
             defaultFlow.value = defaultFlow.value + newMsg
         }
 
@@ -170,7 +183,8 @@ class ChatRepositoryImpl @Inject constructor(
 
         if (isFromMe) {
             val replyPart = if (replyToMsg != null) "${replyToMsg.id}~#~${replyToMsg.senderName}~#~${replyToMsg.content}" else "none~#~none~#~none"
-            broadcastPayload("MSG~#~$canonicalId~#~$senderId~#~$senderName~#~$content~#~$replyPart")
+            val filePart = if (isBeamFile) "${fileName ?: "file"}~#~${fileSizeStr ?: "0MB"}" else "none~#~none"
+            broadcastPayload("MSG~#~${newMsg.id}~#~$canonicalId~#~$senderId~#~$senderName~#~$content~#~$replyPart~#~$filePart")
         }
     }
 
@@ -179,7 +193,7 @@ class ChatRepositoryImpl @Inject constructor(
         val myUserId = peerDiscoveryRepository.getUniqueUserId()
         val myName = peerDiscoveryRepository.getDeviceModelName()
         val signal = if (isTyping) "TYPING_START" else "TYPING_STOP"
-        broadcastPayload("$signal~#~$canonicalId~#~$myUserId~#~$myName~#~empty")
+        broadcastPayload("$signal~#~none~#~$canonicalId~#~$myUserId~#~$myName~#~empty")
     }
 
     override fun togglePinConversation(chatId: String) {
@@ -232,7 +246,7 @@ class ChatRepositoryImpl @Inject constructor(
                 msg.copy(reactions = updatedReactions)
             } else msg
         }
-        broadcastPayload("REACTION~#~$canonicalId~#~$messageId~#~$myUserId~#~$emoji")
+        broadcastPayload("REACTION~#~$messageId~#~$canonicalId~#~$myUserId~#~$emoji")
     }
 
     private fun updateConversationState(
@@ -320,15 +334,7 @@ class ChatRepositoryImpl @Inject constructor(
             // Add ARP table IPs
             targetIps.addAll(getArpTableIps())
 
-            // Add common local subnet IPs (192.168.1.2, 192.168.1.7, etc.)
-            if (myIp != null && myIp.contains(".")) {
-                val prefix = myIp.substringBeforeLast(".") + "."
-                listOf(2, 3, 4, 5, 7, 8, 10, 15, 20, 100, 101, 102, 150, 200).forEach { lastOctet ->
-                    targetIps.add("$prefix$lastOctet")
-                }
-            }
-
-            // Direct TCP socket delivery
+            // Direct TCP socket delivery without duplicate calls
             targetIps.forEach { targetIp ->
                 if (targetIp != myIp && targetIp != "127.0.0.1") {
                     launch {
@@ -367,7 +373,6 @@ class ChatRepositoryImpl @Inject constructor(
                 val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream()))
                 writer.write(payload + "\n")
                 writer.flush()
-                Log.d("SWEET_CHAT", "Direct TCP payload sent to $targetIp:$TCP_CHAT_PORT")
             }
         }
     }
@@ -379,7 +384,6 @@ class ChatRepositoryImpl @Inject constructor(
                     reuseAddress = true
                     bind(InetSocketAddress(TCP_CHAT_PORT))
                 }
-                Log.d("SWEET_CHAT", "TCP Chat Server started on port $TCP_CHAT_PORT")
 
                 while (isActive) {
                     val client = serverSocket.accept()
@@ -388,7 +392,6 @@ class ChatRepositoryImpl @Inject constructor(
                             val reader = BufferedReader(InputStreamReader(client.getInputStream()))
                             val line = reader.readLine()
                             if (!line.isNullOrBlank()) {
-                                Log.d("SWEET_CHAT", "TCP Received payload: $line from ${client.inetAddress.hostAddress}")
                                 handleIncomingPayload(line)
                             }
                             client.close()
@@ -416,7 +419,6 @@ class ChatRepositoryImpl @Inject constructor(
 
                     if (senderIp != null && senderIp != myIp && senderIp != "127.0.0.1") {
                         val receivedStr = String(packet.data, 0, packet.length)
-                        Log.d("SWEET_CHAT", "UDP Received payload: $receivedStr from $senderIp")
                         handleIncomingPayload(receivedStr)
                     }
                 }
@@ -426,11 +428,12 @@ class ChatRepositoryImpl @Inject constructor(
 
     private fun handleIncomingPayload(payload: String) {
         val parts = payload.trim().split("~#~")
-        if (parts.size >= 4) {
+        if (parts.size >= 5) {
             val header = parts[0]
-            val chatId = parts[1]
-            val senderId = parts[2]
-            val senderName = parts[3]
+            val msgId = parts[1]
+            val chatId = parts[2]
+            val senderId = parts[3]
+            val senderName = parts[4]
             val myUserId = peerDiscoveryRepository.getUniqueUserId()
 
             if (senderId != myUserId) {
@@ -449,11 +452,11 @@ class ChatRepositoryImpl @Inject constructor(
                     }
                     "REACTION" -> {
                         if (parts.size >= 5) {
-                            val messageId = parts[2]
+                            val targetMsgId = parts[1]
                             val emoji = parts[4]
                             val flow = getOrCreateFlow(canonicalId)
                             flow.value = flow.value.map { msg ->
-                                if (msg.id == messageId) {
+                                if (msg.id == targetMsgId) {
                                     val updatedMap = msg.reactions.toMutableMap()
                                     updatedMap[senderId] = emoji
                                     msg.copy(reactions = updatedMap)
@@ -462,16 +465,19 @@ class ChatRepositoryImpl @Inject constructor(
                         }
                     }
                     "MSG" -> {
-                        val content = if (parts.size >= 5) parts[4] else ""
+                        val content = if (parts.size >= 6) parts[5] else ""
                         val targetFlow = getOrCreateFlow(canonicalId)
                         val defaultFlow = getOrCreateFlow("101")
+
+                        // DEDUPLICATION FIX: Discard duplicate incoming packets with same message ID
+                        if (targetFlow.value.any { it.id == msgId }) return
 
                         var replyId: String? = null
                         var replyName: String? = null
                         var replyContent: String? = null
 
-                        if (parts.size >= 6) {
-                            val replyPayload = parts[5].split("|")
+                        if (parts.size >= 7) {
+                            val replyPayload = parts[6].split("|")
                             if (replyPayload.size >= 3 && replyPayload[0] != "none") {
                                 replyId = replyPayload[0]
                                 replyName = replyPayload[1]
@@ -479,7 +485,20 @@ class ChatRepositoryImpl @Inject constructor(
                             }
                         }
 
+                        var fileName: String? = null
+                        var fileSizeStr: String? = null
+                        var isBeamFile = false
+                        if (parts.size >= 8) {
+                            val filePayload = parts[7].split("|")
+                            if (filePayload.size >= 2 && filePayload[0] != "none") {
+                                fileName = filePayload[0]
+                                fileSizeStr = filePayload[1]
+                                isBeamFile = true
+                            }
+                        }
+
                         val incomingMsg = ChatMessage(
+                            id = if (msgId != "none") msgId else java.util.UUID.randomUUID().toString(),
                             chatId = canonicalId,
                             senderId = senderId,
                             senderName = senderName,
@@ -488,7 +507,11 @@ class ChatRepositoryImpl @Inject constructor(
                             status = MessageStatus.READ,
                             replyToMessageId = replyId,
                             replyToSenderName = replyName,
-                            replyToContent = replyContent
+                            replyToContent = replyContent,
+                            fileName = fileName,
+                            fileSizeStr = fileSizeStr,
+                            isBeamFile = isBeamFile,
+                            transferProgressPercent = if (isBeamFile) 100f else 0f
                         )
 
                         targetFlow.value = targetFlow.value + incomingMsg

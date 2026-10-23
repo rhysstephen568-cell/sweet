@@ -4,8 +4,12 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
@@ -59,6 +63,21 @@ fun ConversationScreen(
     var showTimerMenu by remember { mutableStateOf(false) }
     var selectedMessageForActions by remember { mutableStateOf<ChatMessage?>(null) }
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
+
+    // Real System File Picker Launcher
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val name = resolveFileName(context, uri)
+            val sizeStr = resolveFileSize(context, uri)
+            viewModel.sendMessage(
+                fileName = name,
+                fileSizeStr = sizeStr,
+                isBeamFile = true
+            )
+        }
+    }
 
     // Anti-Screenshot FLAG_SECURE Enforcement
     val activity = context as? Activity
@@ -168,7 +187,6 @@ fun ConversationScreen(
                     .imePadding()
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Quoted Reply Preview Bar
                     replyingToMessage?.let { replyTarget ->
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceVariant,
@@ -314,7 +332,6 @@ fun ConversationScreen(
                     ) {
                         Text("Message Reactions & Actions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
-                        // Emoji Reaction Bar
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceAround
@@ -381,7 +398,7 @@ fun ConversationScreen(
                 }
             }
 
-            // SWEET Beam Attachment Sheet
+            // Real File Picker Attachment Sheet
             if (showAttachmentSheet) {
                 ModalBottomSheet(
                     onDismissRequest = { showAttachmentSheet = false }
@@ -395,30 +412,33 @@ fun ConversationScreen(
                         Text("SWEET Attachments & P2P Beam", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
                         ListItem(
-                            headlineContent = { Text("SWEET Beam P2P File Transfer") },
-                            supportingContent = { Text("Send large files directly over local Wi-Fi up to 100 MB/s") },
-                            leadingContent = { Icon(Icons.Default.FlashOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            headlineContent = { Text("Select Real Document or Media") },
+                            supportingContent = { Text("Choose any real file from your device library") },
+                            leadingContent = { Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                             modifier = Modifier.clickable {
                                 showAttachmentSheet = false
-                                val sampleFile = File(context.cacheDir, "medical_report_patient_1.pdf").apply {
-                                    writeText("SWEET Beam Diagnostic Medical Report Payload Data")
-                                }
-                                viewModel.sendBeamFile(sampleFile)
+                                filePickerLauncher.launch("*/*")
                             }
                         )
 
                         HorizontalDivider()
 
                         ListItem(
-                            headlineContent = { Text("Medical Photo / X-Ray Image") },
+                            headlineContent = { Text("Photo or Image") },
                             leadingContent = { Icon(Icons.Default.Image, contentDescription = null) },
-                            modifier = Modifier.clickable { showAttachmentSheet = false }
+                            modifier = Modifier.clickable {
+                                showAttachmentSheet = false
+                                filePickerLauncher.launch("image/*")
+                            }
                         )
 
                         ListItem(
-                            headlineContent = { Text("Document / Prescription") },
+                            headlineContent = { Text("PDF or Document") },
                             leadingContent = { Icon(Icons.AutoMirrored.Filled.InsertDriveFile, contentDescription = null) },
-                            modifier = Modifier.clickable { showAttachmentSheet = false }
+                            modifier = Modifier.clickable {
+                                showAttachmentSheet = false
+                                filePickerLauncher.launch("application/pdf")
+                            }
                         )
                     }
                 }
@@ -455,11 +475,11 @@ fun MessageBubbleItem(
     val bubbleColor = if (isFromMe) extendedColors.bubbleOutgoing else extendedColors.bubbleIncoming
     val textColor = if (isFromMe) extendedColors.bubbleOutgoingText else extendedColors.bubbleIncomingText
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onSelectMessage() },
-        contentAlignment = if (isFromMe) Alignment.CenterEnd else Alignment.CenterStart
+        horizontalAlignment = if (isFromMe) Alignment.End else Alignment.Start
     ) {
         Surface(
             shape = bubbleShape,
@@ -477,7 +497,6 @@ fun MessageBubbleItem(
                     Spacer(modifier = Modifier.height(2.dp))
                 }
 
-                // Quoted Reply Preview Inside Message Bubble
                 if (message.replyToContent != null) {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
@@ -501,7 +520,7 @@ fun MessageBubbleItem(
                         Icon(Icons.Default.FlashOn, contentDescription = "SWEET Beam", tint = textColor)
                         Column {
                             Text(message.fileName ?: "File Transfer", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = textColor)
-                            Text("${message.fileSizeStr ?: "2.4 MB"} • 14.8 MB/s", fontSize = 10.sp, color = textColor.copy(alpha = 0.8f))
+                            Text("${message.fileSizeStr ?: "1.2 MB"} • P2P Direct", fontSize = 10.sp, color = textColor.copy(alpha = 0.8f))
                         }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
@@ -516,24 +535,6 @@ fun MessageBubbleItem(
                         color = textColor,
                         fontSize = 14.sp
                     )
-                }
-
-                // Reactions Badge
-                if (message.reactions.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        message.reactions.values.distinct().forEach { emoji ->
-                            Surface(
-                                shape = CircleShape,
-                                color = textColor.copy(alpha = 0.2f),
-                                modifier = Modifier.padding(2.dp)
-                            ) {
-                                Text(emoji, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
-                            }
-                        }
-                    }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -569,5 +570,55 @@ fun MessageBubbleItem(
                 }
             }
         }
+
+        // Reaction Emojis OUTSIDE at the Bottom Edge of Chat Bubble (WhatsApp/Telegram Style)
+        if (message.reactions.isNotEmpty()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(top = 2.dp, start = 8.dp, end = 8.dp)
+            ) {
+                message.reactions.values.distinct().forEach { emoji ->
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        tonalElevation = 2.dp,
+                        modifier = Modifier.padding(vertical = 1.dp)
+                    ) {
+                        Text(emoji, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                    }
+                }
+            }
+        }
     }
+}
+
+private fun resolveFileName(context: Context, uri: Uri): String {
+    return runCatching {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index != -1) result = cursor.getString(index)
+                }
+            }
+        }
+        result ?: uri.path?.substringAfterLast('/') ?: "shared_document.pdf"
+    }.getOrDefault("shared_file.pdf")
+}
+
+private fun resolveFileSize(context: Context, uri: Uri): String {
+    return runCatching {
+        var sizeBytes: Long = 0L
+        if (uri.scheme == "content") {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (index != -1) sizeBytes = cursor.getLong(index)
+                }
+            }
+        }
+        val mb = sizeBytes / (1024f * 1024f)
+        if (mb >= 0.1f) String.format(Locale.US, "%.1f MB", mb) else "${sizeBytes / 1024} KB"
+    }.getOrDefault("1.4 MB")
 }

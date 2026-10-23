@@ -67,8 +67,15 @@ class ChatViewModel @Inject constructor(
         _isSecretMode.value = !_isSecretMode.value
     }
 
-    fun sendMessage(replyToMsg: ChatMessage? = null) {
-        val content = _inputText.value.trim()
+    fun sendMessage(
+        replyToMsg: ChatMessage? = null,
+        fileName: String? = null,
+        fileSizeStr: String? = null,
+        isBeamFile: Boolean = false
+    ) {
+        val rawContent = _inputText.value.trim()
+        val content = if (rawContent.isEmpty() && isBeamFile) "Attachment: ${fileName ?: "file"}" else rawContent
+
         if (content.isNotEmpty()) {
             viewModelScope.launch {
                 val finalContent = if (_isSecretMode.value) {
@@ -84,7 +91,10 @@ class ChatViewModel @Inject constructor(
                     senderName = myDeviceName,
                     content = finalContent,
                     isFromMe = true,
-                    replyToMsg = replyToMsg
+                    replyToMsg = replyToMsg,
+                    fileName = fileName,
+                    fileSizeStr = fileSizeStr,
+                    isBeamFile = isBeamFile
                 )
                 _inputText.value = ""
                 chatRepository.sendTypingSignal(chatId, false)
@@ -95,25 +105,10 @@ class ChatViewModel @Inject constructor(
     fun sendBeamFile(file: File) {
         viewModelScope.launch {
             val task = beamManager.sendFileP2P("127.0.0.1", file)
-            val beamMsg = ChatMessage(
-                chatId = chatId,
-                senderId = myUserId,
-                senderName = myDeviceName,
-                content = "SWEET Beam Transfer: ${file.name}",
-                isFromMe = true,
+            sendMessage(
                 fileName = file.name,
                 fileSizeStr = "${file.length() / (1024 * 1024)} MB",
-                isBeamFile = true,
-                transferProgressPercent = task.progressPercent,
-                transferSpeedMBs = task.speedMBs,
-                isTransferCompleted = true
-            )
-            chatRepository.sendMessage(
-                chatId = chatId,
-                senderId = myUserId,
-                senderName = myDeviceName,
-                content = beamMsg.content,
-                isFromMe = true
+                isBeamFile = true
             )
         }
     }
