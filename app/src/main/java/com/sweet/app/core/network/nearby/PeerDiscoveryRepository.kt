@@ -294,23 +294,23 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                     val myIp = getLocalIpAddress()
                     if (myIp != null && myIp.contains(".")) {
                         val prefix = myIp.substringBeforeLast(".") + "."
-                        val ipsToScan = (1..30).map { "$prefix$it" }
+                        // Scan full /24 subnet range (1..254) concurrently
+                        val ipsToScan = (1..254).map { "$prefix$it" }
 
-                        ipsToScan.forEach { targetIp ->
-                            if (targetIp != myIp && targetIp != "127.0.0.1") {
-                                launch {
-                                    runCatching {
-                                        val inetAddr = InetAddress.getByName(targetIp)
-                                        val isReachable = inetAddr.isReachable(200)
-
-                                        if (isReachable) {
+                        // Process in parallel batches of 20
+                        ipsToScan.chunked(20).forEach { batch ->
+                            batch.forEach { targetIp ->
+                                if (targetIp != myIp && targetIp != "127.0.0.1") {
+                                    launch {
+                                        runCatching {
                                             var isSweet = false
                                             var peerId = "usr_lan_${targetIp.replace(".", "_")}"
                                             var peerName = resolveDeviceModelName(targetIp)
 
+                                            // 1. First test if SWEET Handshake Port 9878 is open on this target IP
                                             try {
                                                 Socket().use { socket ->
-                                                    socket.connect(InetSocketAddress(targetIp, HANDSHAKE_PORT), 250)
+                                                    socket.connect(InetSocketAddress(targetIp, HANDSHAKE_PORT), 150)
                                                     val writer = socket.getOutputStream().bufferedWriter()
                                                     val reader = socket.getInputStream().bufferedReader()
                                                     writer.write("SWEET_PING\n")
@@ -327,7 +327,12 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                                 isSweet = false
                                             }
 
-                                            if (peerId != currentUserId) {
+                                            // 2. If not SWEET port, test ICMP reachability
+                                            val isReachable = if (isSweet) true else {
+                                                runCatching { InetAddress.getByName(targetIp).isReachable(150) }.getOrDefault(false)
+                                            }
+
+                                            if (isReachable && peerId != currentUserId) {
                                                 val peer = NearbyPeer(
                                                     userId = peerId,
                                                     name = peerName,
@@ -343,10 +348,11 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                     }
                                 }
                             }
+                            delay(100)
                         }
                     }
                 }
-                delay(10000)
+                delay(8000)
             }
         }
     }

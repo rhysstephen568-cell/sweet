@@ -56,7 +56,7 @@ fun AboutSettingsScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Version 0.01.1.8 (Build 16)",
+                        text = "Version 0.01.1.8.1 (Build 17)",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary

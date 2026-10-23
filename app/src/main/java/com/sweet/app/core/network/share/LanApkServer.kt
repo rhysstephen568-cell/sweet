@@ -56,7 +56,7 @@ class LanApkServer @Inject constructor(
                             val header = "HTTP/1.1 200 OK\r\n" +
                                     "Content-Type: application/vnd.android.package-archive\r\n" +
                                     "Content-Length: ${apkFile.length()}\r\n" +
-                                    "Content-Disposition: attachment; filename=\"SWEET_v0.01.1.8.apk\"\r\n" +
+                                    "Content-Disposition: attachment; filename=\"SWEET_v0.01.1.8.1.apk\"\r\n" +
                                     "Connection: close\r\n\r\n"
 
                             writer.write(header)
