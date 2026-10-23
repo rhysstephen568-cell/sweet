@@ -275,7 +275,7 @@ fun SettingsPlaceholderScreen(
                     Icon(Icons.Default.Info, contentDescription = "About SWEET")
                     Column {
                         Text("About SWEET", fontWeight = FontWeight.Bold)
-                        Text("App version 0.01.1.7.6 (Build 15) and release details", style = MaterialTheme.typography.bodySmall)
+                        Text("App version 0.01.1.8 (Build 16) and release details", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

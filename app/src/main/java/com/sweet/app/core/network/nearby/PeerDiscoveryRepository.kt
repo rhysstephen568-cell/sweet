@@ -60,15 +60,29 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
         }
     }
 
+    private fun resolveDeviceModelName(targetIp: String): String {
+        return try {
+            val inetAddr = InetAddress.getByName(targetIp)
+            val canonicalHostName = inetAddr.canonicalHostName
+            val hostName = inetAddr.hostName
+            val name = when {
+                !canonicalHostName.equals(targetIp, ignoreCase = true) && canonicalHostName.isNotBlank() -> canonicalHostName
+                !hostName.equals(targetIp, ignoreCase = true) && hostName.isNotBlank() -> hostName
+                else -> "Device (${targetIp.substringAfterLast(".")})"
+            }
+            name.removeSuffix(".local").removeSuffix(".home").removeSuffix(".lan")
+        } catch (_: Exception) {
+            "Device (${targetIp.substringAfterLast(".")})"
+        }
+    }
+
     private fun addOrUpdatePeer(newPeer: NearbyPeer, currentUserId: String) {
         val myIp = getLocalIpAddress()
-        // Strict filter against self-pinging
         if (newPeer.userId == currentUserId || newPeer.host == myIp || newPeer.host == "127.0.0.1") {
             return
         }
 
         val currentList = _peers.value.toMutableList()
-        // Remove existing duplicate entries for the same host IP or same device name/userId
         currentList.removeAll { existing ->
             existing.userId == newPeer.userId ||
             existing.host == newPeer.host ||
@@ -84,11 +98,9 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
         return peersList
             .filterNot { it.host == myIp || it.host == "127.0.0.1" }
             .groupBy { peer ->
-                // Group by normalized host IP or normalized device name
                 if (peer.isSweetUser) peer.userId else peer.host
             }
             .map { (_, group) ->
-                // Prioritize active SWEET user entries over plain LAN ping entries
                 group.maxByOrNull { (if (it.isSweetUser) 10000 else 0) + it.lastSeenTimestamp }!!
             }
             .distinctBy { it.host }
@@ -294,7 +306,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                         if (isReachable) {
                                             var isSweet = false
                                             var peerId = "usr_lan_${targetIp.replace(".", "_")}"
-                                            var peerName = "LAN Device ($targetIp)"
+                                            var peerName = resolveDeviceModelName(targetIp)
 
                                             try {
                                                 Socket().use { socket ->
@@ -307,7 +319,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                                     if (response?.startsWith("SWEET_PONG") == true) {
                                                         val parts = response.split("|")
                                                         peerId = parts.getOrNull(1) ?: peerId
-                                                        peerName = parts.getOrNull(2) ?: "SWEET Device"
+                                                        peerName = parts.getOrNull(2) ?: peerName
                                                         isSweet = true
                                                     }
                                                 }
@@ -380,7 +392,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
 
             override fun onServiceResolved(resolvedService: NsdServiceInfo) {
                 val userId = resolvedService.attributes["userId"]?.let { String(it) } ?: resolvedService.serviceName
-                val name = resolvedService.attributes["displayName"]?.let { String(it) } ?: "Nearby SWEET Device"
+                val name = resolvedService.attributes["displayName"]?.let { String(it) } ?: "SWEET Device"
                 @Suppress("DEPRECATION")
                 val host = resolvedService.host?.hostAddress ?: return
                 val port = resolvedService.port

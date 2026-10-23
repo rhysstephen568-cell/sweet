@@ -89,7 +89,6 @@ fun NearbyRadarScreen(
 
     val primaryColor = MaterialTheme.colorScheme.primary
     val outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-    val extendedColors = SweetTheme.extended
     val neonGreen = Color(0xFF00E676)
 
     val infiniteTransition = rememberInfiniteTransition(label = "RadarSweep")
@@ -107,14 +106,15 @@ fun NearbyRadarScreen(
         label = "PulseProgress"
     )
 
-    val lanNodePulseScale by infiniteTransition.animateFloat(
+    // Pulsing animation for nodes (2.5s scale up + 2.5s scale down = 5s total cycle)
+    val nodePulseScale by infiniteTransition.animateFloat(
         initialValue = 0.85f,
         targetValue = 1.25f,
         animationSpec = infiniteRepeatable(
             animation = tween(2500, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "LanNodePulseScale"
+        label = "NodePulseScale"
     )
 
     Scaffold(
@@ -217,8 +217,11 @@ fun NearbyRadarScreen(
                                         }
                                     }
                                     if (peer.isSweetUser) {
-                                        Button(onClick = { onStartChat(peer.userId) }) {
-                                            Text("Chat")
+                                        Button(
+                                            onClick = { onStartChat(peer.userId) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black)
+                                        ) {
+                                            Text("Start Chatting", fontWeight = FontWeight.Bold)
                                         }
                                     } else {
                                         OutlinedButton(onClick = {
@@ -349,12 +352,12 @@ fun NearbyRadarScreen(
                             }
 
                             val baseRadius = 18.dp.toPx()
-                            val nodeRadius = if (peer.isSweetUser) baseRadius * 1.1f else baseRadius * lanNodePulseScale
+                            val nodeRadius = baseRadius * nodePulseScale
                             val nodeColor = if (peer.isSweetUser) neonGreen else Color(0xFFFFA000)
 
-                            // Glowing aura for SWEET Active nodes and LAN devices
+                            // Pulsing green/orange aura ring for discovered nodes
                             drawCircle(
-                                color = nodeColor.copy(alpha = if (peer.isSweetUser) 0.35f else (0.35f * (1.3f - (lanNodePulseScale - 0.85f))).coerceIn(0.05f, 0.45f)),
+                                color = nodeColor.copy(alpha = (0.35f * (1.3f - (nodePulseScale - 0.85f))).coerceIn(0.05f, 0.45f)),
                                 radius = nodeRadius * 1.5f,
                                 center = nodePos
                             )
@@ -365,7 +368,7 @@ fun NearbyRadarScreen(
                                 center = nodePos
                             )
 
-                            // Render Device Name in Small Text Underneath Node
+                            // Render Device Model Name in Small Text Underneath Node
                             drawContext.canvas.nativeCanvas.apply {
                                 val paint = Paint().apply {
                                     color = if (peer.isSweetUser) android.graphics.Color.parseColor("#00E676") else android.graphics.Color.parseColor("#FFA000")
@@ -391,10 +394,10 @@ fun NearbyRadarScreen(
                     ) {
                         if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) {
                             Text("• Mode: Radial Scan (Concentric Latency Tiers)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text("• Neon Green = SWEET Active • Orange Pulse = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("• Neon Green Pulse = SWEET Active • Orange Pulse = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             Text("• Mode: 360° Pulse Scan (Expanding Wave Pulse)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text("• Neon Green = SWEET Active • Orange Pulse = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("• Neon Green Pulse = SWEET Active • Orange Pulse = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -439,7 +442,7 @@ fun NearbyRadarScreen(
                                 ) {
                                     Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Start Chat", fontWeight = FontWeight.Bold)
+                                    Text("Start Chatting", fontWeight = FontWeight.Bold)
                                 }
                             } else {
                                 Button(
@@ -453,7 +456,7 @@ fun NearbyRadarScreen(
                                 ) {
                                     Icon(Icons.Default.Share, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Share App over LAN")
+                                    Text("Share App", fontWeight = FontWeight.Bold)
                                 }
                             }
 
