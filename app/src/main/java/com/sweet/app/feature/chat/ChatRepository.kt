@@ -47,7 +47,7 @@ class ChatRepositoryImpl @Inject constructor(
             chatId = "101",
             senderId = "usr_support",
             senderName = "SWEET Support Team",
-            content = "Welcome to SWEET messenger v0.01.1.8! Real-time local Wi-Fi chat active.",
+            content = "Welcome to SWEET messenger! Real-time local Wi-Fi chat active.",
             isFromMe = false,
             status = MessageStatus.READ
         )
@@ -74,6 +74,8 @@ class ChatRepositoryImpl @Inject constructor(
 
     override suspend fun sendMessage(chatId: String, senderId: String, senderName: String, content: String, isFromMe: Boolean) {
         val flow = getOrCreateFlow(chatId)
+        val defaultFlow = getOrCreateFlow("101")
+
         val newMsg = ChatMessage(
             chatId = chatId,
             senderId = senderId,
@@ -82,7 +84,11 @@ class ChatRepositoryImpl @Inject constructor(
             isFromMe = isFromMe,
             status = MessageStatus.SENT
         )
+
         flow.value = flow.value + newMsg
+        if (chatId != "101") {
+            defaultFlow.value = defaultFlow.value + newMsg
+        }
         getOrCreateTypingFlow(chatId).value = false
 
         if (isFromMe) {
@@ -91,8 +97,10 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override fun sendTypingSignal(chatId: String, isTyping: Boolean) {
+        val myUserId = peerDiscoveryRepository.getUniqueUserId()
+        val myName = peerDiscoveryRepository.getDeviceModelName()
         val signal = if (isTyping) "TYPING_START" else "TYPING_STOP"
-        broadcastPayload("$signal|$chatId|usr_self_101|Me|empty")
+        broadcastPayload("$signal|$chatId|$myUserId|$myName|empty")
     }
 
     private fun broadcastPayload(payload: String) {
@@ -145,6 +153,7 @@ class ChatRepositoryImpl @Inject constructor(
                     val packet = DatagramPacket(buffer, buffer.size)
                     socket.receive(packet)
                     val senderIp = packet.address.hostAddress
+                    val myUserId = peerDiscoveryRepository.getUniqueUserId()
 
                     if (senderIp != null && senderIp != myIp && senderIp != "127.0.0.1") {
                         val receivedStr = String(packet.data, 0, packet.length)
@@ -156,17 +165,21 @@ class ChatRepositoryImpl @Inject constructor(
                             val senderId = parts[2]
                             val senderName = parts[3]
 
-                            if (senderId != "usr_self_101") {
+                            if (senderId != myUserId) {
                                 when (header) {
                                     "TYPING_START" -> {
                                         getOrCreateTypingFlow(chatId).value = true
+                                        getOrCreateTypingFlow("101").value = true
                                     }
                                     "TYPING_STOP" -> {
                                         getOrCreateTypingFlow(chatId).value = false
+                                        getOrCreateTypingFlow("101").value = false
                                     }
                                     "MSG" -> {
                                         val content = if (parts.size >= 5) parts[4] else ""
-                                        val flow = getOrCreateFlow(chatId)
+                                        val targetFlow = getOrCreateFlow(chatId)
+                                        val defaultFlow = getOrCreateFlow("101")
+
                                         val incomingMsg = ChatMessage(
                                             chatId = chatId,
                                             senderId = senderId,
@@ -175,8 +188,14 @@ class ChatRepositoryImpl @Inject constructor(
                                             isFromMe = false,
                                             status = MessageStatus.READ
                                         )
-                                        flow.value = flow.value + incomingMsg
+
+                                        targetFlow.value = targetFlow.value + incomingMsg
+                                        if (chatId != "101") {
+                                            defaultFlow.value = defaultFlow.value + incomingMsg
+                                        }
+
                                         getOrCreateTypingFlow(chatId).value = false
+                                        getOrCreateTypingFlow("101").value = false
                                     }
                                 }
                             }

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sweet.app.core.crypto.SecretChatCryptoManager
 import com.sweet.app.core.network.beam.SweetBeamManager
+import com.sweet.app.core.network.nearby.PeerDiscoveryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -18,6 +19,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
+    private val peerDiscoveryRepository: PeerDiscoveryRepository,
     private val cryptoManager: SecretChatCryptoManager,
     private val beamManager: SweetBeamManager,
     savedStateHandle: SavedStateHandle
@@ -38,6 +40,9 @@ class ChatViewModel @Inject constructor(
     val selfDestructSeconds: StateFlow<Int> = _selfDestructSeconds.asStateFlow()
 
     private var typingJob: Job? = null
+
+    val myUserId: String = peerDiscoveryRepository.getUniqueUserId()
+    val myDeviceName: String = peerDiscoveryRepository.getDeviceModelName()
 
     fun onInputTextChanged(text: String) {
         _inputText.value = text
@@ -75,8 +80,8 @@ class ChatViewModel @Inject constructor(
 
                 chatRepository.sendMessage(
                     chatId = chatId,
-                    senderId = "usr_self_101",
-                    senderName = "Me",
+                    senderId = myUserId,
+                    senderName = myDeviceName,
                     content = finalContent,
                     isFromMe = true
                 )
@@ -91,8 +96,8 @@ class ChatViewModel @Inject constructor(
             val task = beamManager.sendFileP2P("127.0.0.1", file)
             val beamMsg = ChatMessage(
                 chatId = chatId,
-                senderId = "usr_self_101",
-                senderName = "Me",
+                senderId = myUserId,
+                senderName = myDeviceName,
                 content = "SWEET Beam Transfer: ${file.name}",
                 isFromMe = true,
                 fileName = file.name,
@@ -104,8 +109,8 @@ class ChatViewModel @Inject constructor(
             )
             chatRepository.sendMessage(
                 chatId = chatId,
-                senderId = "usr_self_101",
-                senderName = "Me",
+                senderId = myUserId,
+                senderName = myDeviceName,
                 content = beamMsg.content,
                 isFromMe = true
             )

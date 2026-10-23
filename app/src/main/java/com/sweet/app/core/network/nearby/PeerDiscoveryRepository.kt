@@ -5,6 +5,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.provider.Settings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,13 +13,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.net.*
 import java.util.Locale
+import kotlin.math.abs
 import javax.inject.Inject
 import javax.inject.Singleton
 
 interface PeerDiscoveryRepository {
     val peers: StateFlow<List<NearbyPeer>>
     val isDiscovering: StateFlow<Boolean>
-    fun startDiscovery(currentUserId: String, displayName: String)
+    fun getUniqueUserId(): String
+    fun getDeviceModelName(): String
+    fun startDiscovery(currentUserId: String = getUniqueUserId(), displayName: String = getDeviceModelName())
     fun stopDiscovery()
 }
 
@@ -50,7 +54,15 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
     private val DISCOVERY_PORT = 9877
     private val HANDSHAKE_PORT = 9878
 
-    private fun getDeviceModelName(): String {
+    override fun getUniqueUserId(): String {
+        val androidId = runCatching {
+            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        }.getOrNull() ?: Build.FINGERPRINT
+        val hash = abs((androidId + Build.MODEL).hashCode())
+        return "usr_${Build.MODEL.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.ROOT)}_$hash"
+    }
+
+    override fun getDeviceModelName(): String {
         val manufacturer = Build.MANUFACTURER
         val model = Build.MODEL
         return if (model.lowercase(Locale.ROOT).startsWith(manufacturer.lowercase(Locale.ROOT))) {
@@ -76,27 +88,27 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun addOrUpdatePeer(newPeer: NearbyPeer, currentUserId: String) {
+    private fun addOrUpdatePeer(newPeer: NearbyPeer, myUserId: String) {
         val myIp = getLocalIpAddress()
-        if (newPeer.userId == currentUserId || newPeer.host == myIp || newPeer.host == "127.0.0.1") {
+        // Filter out self by ID and IP address
+        if (newPeer.userId == myUserId || newPeer.host == myIp || newPeer.host == "127.0.0.1") {
             return
         }
 
         val currentList = _peers.value.toMutableList()
         currentList.removeAll { existing ->
             existing.userId == newPeer.userId ||
-            existing.host == newPeer.host ||
-            (existing.name.lowercase().trim() == newPeer.name.lowercase().trim() && existing.name.isNotBlank())
+            existing.host == newPeer.host
         }
 
         currentList.add(newPeer)
-        _peers.value = deduplicatePeers(currentList)
+        _peers.value = deduplicatePeers(currentList, myUserId)
     }
 
-    private fun deduplicatePeers(peersList: List<NearbyPeer>): List<NearbyPeer> {
+    private fun deduplicatePeers(peersList: List<NearbyPeer>, myUserId: String): List<NearbyPeer> {
         val myIp = getLocalIpAddress()
         return peersList
-            .filterNot { it.host == myIp || it.host == "127.0.0.1" }
+            .filterNot { it.userId == myUserId || it.host == myIp || it.host == "127.0.0.1" }
             .groupBy { peer ->
                 if (peer.isSweetUser) peer.userId else peer.host
             }
@@ -107,9 +119,10 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
     }
 
     override fun startDiscovery(currentUserId: String, displayName: String) {
-        if (_isDiscovering.value) return
+        val myUserId = if (currentUserId.isBlank() || currentUserId == "usr_self_101") getUniqueUserId() else currentUserId
+        val myModelName = if (displayName.isBlank() || displayName == "Me (You)") getDeviceModelName() else displayName
 
-        val myModelName = getDeviceModelName()
+        if (_isDiscovering.value) return
 
         runCatching {
             if (multicastLock == null) {
@@ -121,10 +134,10 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
         }
 
         serviceInfo = NsdServiceInfo().apply {
-            serviceName = "SWEET_$currentUserId"
+            serviceName = "SWEET_$myUserId"
             serviceType = SERVICE_TYPE
             port = HANDSHAKE_PORT
-            setAttribute("userId", currentUserId)
+            setAttribute("userId", myUserId)
             setAttribute("displayName", myModelName)
             setAttribute("discoverable", "true")
         }
@@ -158,8 +171,8 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
             }
 
             override fun onServiceFound(service: NsdServiceInfo) {
-                if (service.serviceType.contains("_sweet") && !service.serviceName.contains(currentUserId)) {
-                    resolveService(service, currentUserId)
+                if (service.serviceType.contains("_sweet") && !service.serviceName.contains(myUserId)) {
+                    resolveService(service, myUserId)
                 }
             }
 
@@ -175,9 +188,9 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
 
         _isDiscovering.value = true
 
-        startTcpDiscoveryServer(currentUserId, myModelName)
-        startUdpHeartbeat(currentUserId, myModelName)
-        startSubnetScanner(currentUserId)
+        startTcpDiscoveryServer(myUserId, myModelName)
+        startUdpHeartbeat(myUserId, myModelName)
+        startSubnetScanner(myUserId)
 
         cleanupJob?.cancel()
         cleanupJob = scope.launch {
@@ -189,7 +202,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun startTcpDiscoveryServer(currentUserId: String, displayName: String) {
+    private fun startTcpDiscoveryServer(myUserId: String, displayName: String) {
         tcpServerJob?.cancel()
         tcpServerJob = scope.launch(Dispatchers.IO) {
             runCatching {
@@ -205,7 +218,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                             val writer = client.getOutputStream().bufferedWriter()
                             val line = reader.readLine()
                             if (line?.startsWith("SWEET_PING") == true) {
-                                writer.write("SWEET_PONG|$currentUserId|$displayName\n")
+                                writer.write("SWEET_PONG|$myUserId|$displayName\n")
                                 writer.flush()
                             }
                             client.close()
@@ -216,7 +229,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun startUdpHeartbeat(currentUserId: String, displayName: String) {
+    private fun startUdpHeartbeat(myUserId: String, displayName: String) {
         heartbeatJob?.cancel()
         heartbeatJob = scope.launch {
             launch {
@@ -224,7 +237,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                     runCatching {
                         val socket = DatagramSocket()
                         socket.broadcast = true
-                        val payload = "HEARTBEAT|$currentUserId|$displayName"
+                        val payload = "HEARTBEAT|$myUserId|$displayName"
                         val bytes = payload.toByteArray()
 
                         runCatching {
@@ -241,7 +254,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
 
                         socket.close()
                     }
-                    delay(2500)
+                    delay(2000)
                 }
             }
 
@@ -266,17 +279,17 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                 val userId = parts[1]
                                 val name = parts[2]
 
-                                if (userId != currentUserId) {
+                                if (userId != myUserId) {
                                     val newPeer = NearbyPeer(
                                         userId = userId,
                                         name = name,
                                         host = packetIp,
                                         port = HANDSHAKE_PORT,
-                                        rttMs = 12L,
+                                        rttMs = 10L,
                                         lastSeenTimestamp = System.currentTimeMillis(),
                                         isSweetUser = true
                                     )
-                                    addOrUpdatePeer(newPeer, currentUserId)
+                                    addOrUpdatePeer(newPeer, myUserId)
                                 }
                             }
                         }
@@ -286,7 +299,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun startSubnetScanner(currentUserId: String) {
+    private fun startSubnetScanner(myUserId: String) {
         subnetScannerJob?.cancel()
         subnetScannerJob = scope.launch(Dispatchers.IO) {
             while (isActive) {
@@ -294,11 +307,9 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                     val myIp = getLocalIpAddress()
                     if (myIp != null && myIp.contains(".")) {
                         val prefix = myIp.substringBeforeLast(".") + "."
-                        // Scan full /24 subnet range (1..254) concurrently
                         val ipsToScan = (1..254).map { "$prefix$it" }
 
-                        // Process in parallel batches of 20
-                        ipsToScan.chunked(20).forEach { batch ->
+                        ipsToScan.chunked(25).forEach { batch ->
                             batch.forEach { targetIp ->
                                 if (targetIp != myIp && targetIp != "127.0.0.1") {
                                     launch {
@@ -307,7 +318,6 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                             var peerId = "usr_lan_${targetIp.replace(".", "_")}"
                                             var peerName = resolveDeviceModelName(targetIp)
 
-                                            // 1. First test if SWEET Handshake Port 9878 is open on this target IP
                                             try {
                                                 Socket().use { socket ->
                                                     socket.connect(InetSocketAddress(targetIp, HANDSHAKE_PORT), 150)
@@ -327,32 +337,31 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                                 isSweet = false
                                             }
 
-                                            // 2. If not SWEET port, test ICMP reachability
                                             val isReachable = if (isSweet) true else {
                                                 runCatching { InetAddress.getByName(targetIp).isReachable(150) }.getOrDefault(false)
                                             }
 
-                                            if (isReachable && peerId != currentUserId) {
+                                            if (isReachable && peerId != myUserId) {
                                                 val peer = NearbyPeer(
                                                     userId = peerId,
                                                     name = peerName,
                                                     host = targetIp,
                                                     port = HANDSHAKE_PORT,
-                                                    rttMs = if (isSweet) 10L else 35L,
+                                                    rttMs = if (isSweet) 8L else 35L,
                                                     lastSeenTimestamp = System.currentTimeMillis(),
                                                     isSweetUser = isSweet
                                                 )
-                                                addOrUpdatePeer(peer, currentUserId)
+                                                addOrUpdatePeer(peer, myUserId)
                                             }
                                         }
                                     }
                                 }
                             }
-                            delay(100)
+                            delay(80)
                         }
                     }
                 }
-                delay(8000)
+                delay(6000)
             }
         }
     }
@@ -391,7 +400,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun resolveService(service: NsdServiceInfo, currentUserId: String) {
+    private fun resolveService(service: NsdServiceInfo, myUserId: String) {
         @Suppress("DEPRECATION")
         nsdManager.resolveService(service, object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
@@ -404,7 +413,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                 val port = resolvedService.port
 
                 val myIp = getLocalIpAddress()
-                if (host != myIp && userId != currentUserId) {
+                if (host != myIp && userId != myUserId) {
                     scope.launch {
                         val rtt = measureLatency(host, port)
                         val updatedPeer = NearbyPeer(
@@ -417,7 +426,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                             isSweetUser = true
                         )
 
-                        addOrUpdatePeer(updatedPeer, currentUserId)
+                        addOrUpdatePeer(updatedPeer, myUserId)
                     }
                 }
             }
