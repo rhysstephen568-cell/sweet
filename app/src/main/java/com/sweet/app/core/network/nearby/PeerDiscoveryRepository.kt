@@ -60,6 +60,40 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
         }
     }
 
+    private fun addOrUpdatePeer(newPeer: NearbyPeer, currentUserId: String) {
+        val myIp = getLocalIpAddress()
+        // Strict filter against self-pinging
+        if (newPeer.userId == currentUserId || newPeer.host == myIp || newPeer.host == "127.0.0.1") {
+            return
+        }
+
+        val currentList = _peers.value.toMutableList()
+        // Remove existing duplicate entries for the same host IP or same device name/userId
+        currentList.removeAll { existing ->
+            existing.userId == newPeer.userId ||
+            existing.host == newPeer.host ||
+            (existing.name.lowercase().trim() == newPeer.name.lowercase().trim() && existing.name.isNotBlank())
+        }
+
+        currentList.add(newPeer)
+        _peers.value = deduplicatePeers(currentList)
+    }
+
+    private fun deduplicatePeers(peersList: List<NearbyPeer>): List<NearbyPeer> {
+        val myIp = getLocalIpAddress()
+        return peersList
+            .filterNot { it.host == myIp || it.host == "127.0.0.1" }
+            .groupBy { peer ->
+                // Group by normalized host IP or normalized device name
+                if (peer.isSweetUser) peer.userId else peer.host
+            }
+            .map { (_, group) ->
+                // Prioritize active SWEET user entries over plain LAN ping entries
+                group.maxByOrNull { (if (it.isSweetUser) 10000 else 0) + it.lastSeenTimestamp }!!
+            }
+            .distinctBy { it.host }
+    }
+
     override fun startDiscovery(currentUserId: String, displayName: String) {
         if (_isDiscovering.value) return
 
@@ -74,7 +108,6 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
             multicastLock?.acquire()
         }
 
-        // 1. Register NSD Service with device model name
         serviceInfo = NsdServiceInfo().apply {
             serviceName = "SWEET_$currentUserId"
             serviceType = SERVICE_TYPE
@@ -114,7 +147,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
 
             override fun onServiceFound(service: NsdServiceInfo) {
                 if (service.serviceType.contains("_sweet") && !service.serviceName.contains(currentUserId)) {
-                    resolveService(service)
+                    resolveService(service, currentUserId)
                 }
             }
 
@@ -194,11 +227,6 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                             }
                         }
 
-                        runCatching {
-                            val packet = DatagramPacket(bytes, bytes.size, InetAddress.getByName("10.0.2.2"), DISCOVERY_PORT)
-                            socket.send(packet)
-                        }
-
                         socket.close()
                     }
                     delay(2500)
@@ -219,8 +247,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                         socket.receive(packet)
                         val packetIp = packet.address.hostAddress
 
-                        // STRICT SELF-PING PREVENTION: Ignore packets from self!
-                        if (packetIp != null && packetIp != myIp) {
+                        if (packetIp != null && packetIp != myIp && packetIp != "127.0.0.1") {
                             val receivedStr = String(packet.data, 0, packet.length)
                             val parts = receivedStr.split("|")
                             if (parts.size >= 3 && parts[0] == "HEARTBEAT") {
@@ -237,7 +264,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                         lastSeenTimestamp = System.currentTimeMillis(),
                                         isSweetUser = true
                                     )
-                                    _peers.value = _peers.value.filterNot { it.userId == userId } + newPeer
+                                    addOrUpdatePeer(newPeer, currentUserId)
                                 }
                             }
                         }
@@ -255,10 +282,9 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                     val myIp = getLocalIpAddress()
                     if (myIp != null && myIp.contains(".")) {
                         val prefix = myIp.substringBeforeLast(".") + "."
-                        val ipsToScan = listOf("10.0.2.2", "10.0.2.15") + (1..30).map { "$prefix$it" }
+                        val ipsToScan = (1..30).map { "$prefix$it" }
 
                         ipsToScan.forEach { targetIp ->
-                            // STRICT SELF-PING PREVENTION: Do not ping self IP!
                             if (targetIp != myIp && targetIp != "127.0.0.1") {
                                 launch {
                                     runCatching {
@@ -299,7 +325,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                                                     lastSeenTimestamp = System.currentTimeMillis(),
                                                     isSweetUser = isSweet
                                                 )
-                                                _peers.value = _peers.value.filterNot { it.userId == peerId } + peer
+                                                addOrUpdatePeer(peer, currentUserId)
                                             }
                                         }
                                     }
@@ -347,20 +373,20 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun resolveService(service: NsdServiceInfo) {
+    private fun resolveService(service: NsdServiceInfo, currentUserId: String) {
         @Suppress("DEPRECATION")
         nsdManager.resolveService(service, object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
 
             override fun onServiceResolved(resolvedService: NsdServiceInfo) {
                 val userId = resolvedService.attributes["userId"]?.let { String(it) } ?: resolvedService.serviceName
-                val name = resolvedService.attributes["displayName"]?.let { String(it) } ?: "Nearby Device"
+                val name = resolvedService.attributes["displayName"]?.let { String(it) } ?: "Nearby SWEET Device"
                 @Suppress("DEPRECATION")
                 val host = resolvedService.host?.hostAddress ?: return
                 val port = resolvedService.port
 
                 val myIp = getLocalIpAddress()
-                if (host != myIp && userId != "usr_self_101") {
+                if (host != myIp && userId != currentUserId) {
                     scope.launch {
                         val rtt = measureLatency(host, port)
                         val updatedPeer = NearbyPeer(
@@ -373,7 +399,7 @@ class NsdPeerDiscoveryRepositoryImpl @Inject constructor(
                             isSweetUser = true
                         )
 
-                        _peers.value = _peers.value.filterNot { it.userId == userId } + updatedPeer
+                        addOrUpdatePeer(updatedPeer, currentUserId)
                     }
                 }
             }

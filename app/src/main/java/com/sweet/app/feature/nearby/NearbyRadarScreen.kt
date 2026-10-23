@@ -90,6 +90,7 @@ fun NearbyRadarScreen(
     val primaryColor = MaterialTheme.colorScheme.primary
     val outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
     val extendedColors = SweetTheme.extended
+    val neonGreen = Color(0xFF00E676)
 
     val infiniteTransition = rememberInfiniteTransition(label = "RadarSweep")
     val sweepAngle by infiniteTransition.animateFloat(
@@ -125,7 +126,7 @@ fun NearbyRadarScreen(
                         Text(
                             "Wi-Fi LAN Active: ${wifiState.ssid} ${if (wifiState.ipAddress != null) "(${wifiState.ipAddress})" else ""}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = extendedColors.onlineIndicator,
+                            color = neonGreen,
                             fontSize = 10.sp
                         )
                     }
@@ -194,17 +195,21 @@ fun NearbyRadarScreen(
                                             modifier = Modifier
                                                 .size(40.dp)
                                                 .clip(CircleShape)
-                                                .background(if (peer.isSweetUser) primaryColor else MaterialTheme.colorScheme.secondary),
+                                                .background(if (peer.isSweetUser) neonGreen else MaterialTheme.colorScheme.secondary),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text(peer.name.take(1), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                                            Text(peer.name.take(1), color = Color.Black, fontWeight = FontWeight.Bold)
                                         }
                                         Column {
                                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                                 Text(peer.name, fontWeight = FontWeight.Bold)
-                                                if (!peer.isSweetUser) {
+                                                if (peer.isSweetUser) {
+                                                    Surface(shape = RoundedCornerShape(4.dp), color = neonGreen.copy(alpha = 0.2f)) {
+                                                        Text("SWEET Active", fontSize = 10.sp, color = neonGreen, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                                    }
+                                                } else {
                                                     Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                                                        Text("LAN Device", fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                                        Text("LAN Device", fontSize = 10.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                                     }
                                                 }
                                             }
@@ -344,16 +349,15 @@ fun NearbyRadarScreen(
                             }
 
                             val baseRadius = 18.dp.toPx()
-                            val nodeRadius = if (peer.isSweetUser) baseRadius else baseRadius * lanNodePulseScale
-                            val nodeColor = if (peer.isSweetUser) extendedColors.onlineIndicator else Color(0xFFFFA000)
+                            val nodeRadius = if (peer.isSweetUser) baseRadius * 1.1f else baseRadius * lanNodePulseScale
+                            val nodeColor = if (peer.isSweetUser) neonGreen else Color(0xFFFFA000)
 
-                            if (!peer.isSweetUser) {
-                                drawCircle(
-                                    color = Color(0xFFFFA000).copy(alpha = (0.35f * (1.3f - (lanNodePulseScale - 0.85f))).coerceIn(0.05f, 0.45f)),
-                                    radius = nodeRadius * 1.45f,
-                                    center = nodePos
-                                )
-                            }
+                            // Glowing aura for SWEET Active nodes and LAN devices
+                            drawCircle(
+                                color = nodeColor.copy(alpha = if (peer.isSweetUser) 0.35f else (0.35f * (1.3f - (lanNodePulseScale - 0.85f))).coerceIn(0.05f, 0.45f)),
+                                radius = nodeRadius * 1.5f,
+                                center = nodePos
+                            )
 
                             drawCircle(
                                 color = nodeColor,
@@ -364,14 +368,14 @@ fun NearbyRadarScreen(
                             // Render Device Name in Small Text Underneath Node
                             drawContext.canvas.nativeCanvas.apply {
                                 val paint = Paint().apply {
-                                    color = if (peer.isSweetUser) android.graphics.Color.WHITE else android.graphics.Color.parseColor("#FFA000")
+                                    color = if (peer.isSweetUser) android.graphics.Color.parseColor("#00E676") else android.graphics.Color.parseColor("#FFA000")
                                     textSize = 10.dp.toPx()
                                     textAlign = Paint.Align.CENTER
                                     isAntiAlias = true
                                     isFakeBoldText = true
                                 }
                                 drawText(
-                                    peer.name.take(14),
+                                    peer.name,
                                     nodePos.x,
                                     nodePos.y + nodeRadius + 14.dp.toPx(),
                                     paint
@@ -387,10 +391,10 @@ fun NearbyRadarScreen(
                     ) {
                         if (prefs.discoveryScanType == DiscoveryScanType.RADIAL) {
                             Text("• Mode: Radial Scan (Concentric Latency Tiers)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text("• Green = SWEET Active • Orange Pulse = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("• Neon Green = SWEET Active • Orange Pulse = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             Text("• Mode: 360° Pulse Scan (Expanding Wave Pulse)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text("• Green = SWEET Active • Orange Pulse = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("• Neon Green = SWEET Active • Orange Pulse = LAN Device", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -411,10 +415,10 @@ fun NearbyRadarScreen(
                             modifier = Modifier
                                 .size(64.dp)
                                 .clip(CircleShape)
-                                .background(if (peer.isSweetUser) primaryColor else MaterialTheme.colorScheme.secondary),
+                                .background(if (peer.isSweetUser) neonGreen else MaterialTheme.colorScheme.secondary),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(peer.name.take(1), color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.headlineSmall)
+                            Text(peer.name.take(1), color = Color.Black, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                         }
                         Text(peer.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text("IP: ${peer.host} • Status: ${if (peer.isSweetUser) "SWEET Active" else "LAN Device (SWEET Not Installed)"}", style = MaterialTheme.typography.bodyMedium)
@@ -430,11 +434,12 @@ fun NearbyRadarScreen(
                                         onStartChat(peer.userId)
                                     },
                                     modifier = Modifier.weight(1f),
-                                    shape = SweetTheme.shapes.buttonShape
+                                    shape = SweetTheme.shapes.buttonShape,
+                                    colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black)
                                 ) {
                                     Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Start Chat")
+                                    Text("Start Chat", fontWeight = FontWeight.Bold)
                                 }
                             } else {
                                 Button(
@@ -464,7 +469,6 @@ fun NearbyRadarScreen(
                 }
             }
 
-            // Share App Dialog
             if (showShareDialog) {
                 AlertDialog(
                     onDismissRequest = { showShareDialog = false },
@@ -512,7 +516,6 @@ fun NearbyRadarScreen(
                 )
             }
 
-            // Incoming LAN Share Request Pop-up Interrupt Alert Dialog
             incomingShareRequest?.let { req ->
                 AlertDialog(
                     onDismissRequest = { viewModel.dismissIncomingShareRequest() },
