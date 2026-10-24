@@ -18,6 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -64,7 +65,14 @@ fun ConversationScreen(
     var selectedMessageForActions by remember { mutableStateOf<ChatMessage?>(null) }
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
-    // Real System File Picker Launcher
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -79,7 +87,6 @@ fun ConversationScreen(
         }
     }
 
-    // Anti-Screenshot FLAG_SECURE Enforcement
     val activity = context as? Activity
     DisposableEffect(isSecretMode) {
         if (isSecretMode && activity != null) {
@@ -95,7 +102,11 @@ fun ConversationScreen(
         topBar = {
             SweetTopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.clickable { /* TODO: Open Peer Profile */ },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Image(
                             painter = painterResource(id = R.drawable.ic_logo),
                             contentDescription = "Avatar",
@@ -109,9 +120,11 @@ fun ConversationScreen(
                                     Icon(Icons.Default.Lock, contentDescription = "Secret Chat", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                                 }
                                 Text(
-                                    if (isSecretMode) "Secret Chat / Node #${viewModel.chatId}" else "SWEET Node #${viewModel.chatId}",
+                                    text = if (isSecretMode) "Secret Chat" else viewModel.peerDisplayName,
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -262,6 +275,7 @@ fun ConversationScreen(
                 .imePadding()
         ) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -319,7 +333,6 @@ fun ConversationScreen(
                 }
             }
 
-            // Message Actions BottomSheet (Reactions, Reply, Copy, Star, Delete)
             selectedMessageForActions?.let { msg ->
                 ModalBottomSheet(
                     onDismissRequest = { selectedMessageForActions = null }
@@ -398,7 +411,6 @@ fun ConversationScreen(
                 }
             }
 
-            // Real File Picker Attachment Sheet
             if (showAttachmentSheet) {
                 ModalBottomSheet(
                     onDismissRequest = { showAttachmentSheet = false }
@@ -519,8 +531,8 @@ fun MessageBubbleItem(
                     ) {
                         Icon(Icons.Default.FlashOn, contentDescription = "SWEET Beam", tint = textColor)
                         Column {
-                            Text(message.fileName ?: "File Transfer", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = textColor)
-                            Text("${message.fileSizeStr ?: "1.2 MB"} • P2P Direct", fontSize = 10.sp, color = textColor.copy(alpha = 0.8f))
+                            Text(message.fileName ?: "File Transfer", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = textColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${message.fileSizeStr ?: "Unknown Size"} • P2P Direct", fontSize = 10.sp, color = textColor.copy(alpha = 0.8f))
                         }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
@@ -571,7 +583,6 @@ fun MessageBubbleItem(
             }
         }
 
-        // Reaction Emojis OUTSIDE at the Bottom Edge of Chat Bubble (WhatsApp/Telegram Style)
         if (message.reactions.isNotEmpty()) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -620,5 +631,5 @@ private fun resolveFileSize(context: Context, uri: Uri): String {
         }
         val mb = sizeBytes / (1024f * 1024f)
         if (mb >= 0.1f) String.format(Locale.US, "%.1f MB", mb) else "${sizeBytes / 1024} KB"
-    }.getOrDefault("1.4 MB")
+    }.getOrDefault("Unknown Size")
 }

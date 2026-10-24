@@ -44,6 +44,12 @@ class ChatViewModel @Inject constructor(
     val myUserId: String = peerDiscoveryRepository.getUniqueUserId()
     val myDeviceName: String = peerDiscoveryRepository.getDeviceModelName()
 
+    val peerDisplayName: String get() {
+        val canonicalId = chatRepository.getCanonicalChatId(chatId)
+        val conv = chatRepository.conversations.value.find { it.chatId == canonicalId }
+        return conv?.displayName ?: if (chatId == "101") "SWEET Support Team" else "SWEET Node"
+    }
+
     fun onInputTextChanged(text: String) {
         _inputText.value = text
 
