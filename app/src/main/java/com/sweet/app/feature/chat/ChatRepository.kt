@@ -86,7 +86,7 @@ class ChatRepositoryImpl @Inject constructor(
             chatId = "101",
             senderId = "usr_support",
             senderName = "SWEET Support Team",
-            content = "Welcome to SWEET messenger v0.01.1.9.3! Real-time Wi-Fi messaging active.",
+            content = "Welcome to SWEET messenger v0.01.1.9.4! Real-time Wi-Fi messaging active.",
             isFromMe = false,
             status = MessageStatus.READ
         )
@@ -99,8 +99,10 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override fun getCanonicalChatId(peerUserId: String): String {
-        val myUserId = peerDiscoveryRepository.getUniqueUserId()
         if (peerUserId == "101" || peerUserId.isBlank()) return "101"
+        if (peerUserId.startsWith("chat_")) return peerUserId // FIXED: Prevent recursive ID expansion!
+
+        val myUserId = peerDiscoveryRepository.getUniqueUserId()
         return if (myUserId <= peerUserId) "chat_${myUserId}_$peerUserId" else "chat_${peerUserId}_$myUserId"
     }
 
@@ -168,7 +170,6 @@ class ChatRepositoryImpl @Inject constructor(
             transferProgressPercent = if (isBeamFile) 100f else 0f
         )
 
-        // Prevent duplicate local appending
         if (targetFlow.value.none { it.id == newMsg.id }) {
             targetFlow.value = targetFlow.value + newMsg
         }
@@ -278,8 +279,9 @@ class ChatRepositoryImpl @Inject constructor(
             isPeerTyping = isTyping
         )
 
+        // DEDUPLICATION FIX: Group by peerUserId / chatId so each physical device appears ONCE in recent chats list
         val currentList = _conversations.value.toMutableList()
-        currentList.removeAll { it.chatId == chatId }
+        currentList.removeAll { it.chatId == chatId || it.peerUserId == peerUserId }
         currentList.add(conversation)
 
         _conversations.value = sortConversations(currentList)
@@ -297,7 +299,8 @@ class ChatRepositoryImpl @Inject constructor(
                 unreadCount = unreadMap[conv.chatId] ?: 0,
                 isPeerTyping = getOrCreateTypingFlow(conv.chatId).value
             )
-        }.sortedWith(
+        }.distinctBy { it.chatId }
+        .sortedWith(
             compareByDescending<ChatConversation> { it.isPinned }
                 .thenByDescending { it.lastMessageTimestamp }
         )
@@ -328,13 +331,9 @@ class ChatRepositoryImpl @Inject constructor(
             val myIp = getLocalIpAddress()
             val targetIps = mutableSetOf<String>()
 
-            // Add active discovered peers
             peerDiscoveryRepository.peers.value.forEach { targetIps.add(it.host) }
-
-            // Add ARP table IPs
             targetIps.addAll(getArpTableIps())
 
-            // Direct TCP socket delivery without duplicate calls
             targetIps.forEach { targetIp ->
                 if (targetIp != myIp && targetIp != "127.0.0.1") {
                     launch {
@@ -343,7 +342,6 @@ class ChatRepositoryImpl @Inject constructor(
                 }
             }
 
-            // Fallback UDP Broadcast
             runCatching {
                 val socket = DatagramSocket()
                 socket.broadcast = true
@@ -469,7 +467,6 @@ class ChatRepositoryImpl @Inject constructor(
                         val targetFlow = getOrCreateFlow(canonicalId)
                         val defaultFlow = getOrCreateFlow("101")
 
-                        // DEDUPLICATION FIX: Discard duplicate incoming packets with same message ID
                         if (targetFlow.value.any { it.id == msgId }) return
 
                         var replyId: String? = null

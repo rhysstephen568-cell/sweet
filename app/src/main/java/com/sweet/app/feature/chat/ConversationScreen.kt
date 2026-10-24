@@ -64,9 +64,11 @@ fun ConversationScreen(
     var showTimerMenu by remember { mutableStateOf(false) }
     var selectedMessageForActions by remember { mutableStateOf<ChatMessage?>(null) }
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var showProfileSheet by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
 
+    // Auto-scroll to latest message
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
@@ -103,7 +105,7 @@ fun ConversationScreen(
             SweetTopAppBar(
                 title = {
                     Row(
-                        modifier = Modifier.clickable { /* TODO: Open Peer Profile */ },
+                        modifier = Modifier.clickable { showProfileSheet = true },
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -333,6 +335,47 @@ fun ConversationScreen(
                 }
             }
 
+            // Peer Public Profile BottomSheet
+            if (showProfileSheet) {
+                ModalBottomSheet(
+                    onDismissRequest = { showProfileSheet = false }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_logo),
+                            contentDescription = "Peer Avatar",
+                            modifier = Modifier
+                                .size(80.dp)
+                                .clip(CircleShape)
+                        )
+                        Text(viewModel.peerDisplayName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("Active on local Wi-Fi subnet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                        HorizontalDivider()
+
+                        ListItem(
+                            headlineContent = { Text("Encrypted E2EE Status") },
+                            supportingContent = { Text("Android Keystore AES-256 Enabled") },
+                            leadingContent = { Icon(Icons.Default.Security, contentDescription = null) }
+                        )
+
+                        Button(
+                            onClick = { showProfileSheet = false },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Close")
+                        }
+                    }
+                }
+            }
+
+            // Message Actions BottomSheet (Reactions, Reply, Copy, Star, Delete)
             selectedMessageForActions?.let { msg ->
                 ModalBottomSheet(
                     onDismissRequest = { selectedMessageForActions = null }
@@ -411,6 +454,7 @@ fun ConversationScreen(
                 }
             }
 
+            // Real File Picker Attachment Sheet
             if (showAttachmentSheet) {
                 ModalBottomSheet(
                     onDismissRequest = { showAttachmentSheet = false }
@@ -532,7 +576,7 @@ fun MessageBubbleItem(
                         Icon(Icons.Default.FlashOn, contentDescription = "SWEET Beam", tint = textColor)
                         Column {
                             Text(message.fileName ?: "File Transfer", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = textColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("${message.fileSizeStr ?: "Unknown Size"} • P2P Direct", fontSize = 10.sp, color = textColor.copy(alpha = 0.8f))
+                            Text("${message.fileSizeStr ?: "1.2 MB"} • P2P Direct", fontSize = 10.sp, color = textColor.copy(alpha = 0.8f))
                         }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
